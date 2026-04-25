@@ -94,6 +94,11 @@ question or note to Gemini and does not advance the step. Use `/next` to retry
 vision verification, or `/confirm` to manually advance after checking the
 placement yourself.
 
+After all build steps are verified, `/next` moves into a host-controlled Arduino
+test. Gemini is no longer allowed to create new breadboard placement steps at
+that point, which prevents the workflow from restarting the build plan after the
+circuit is already assembled.
+
 ## Real Hardware Mode
 
 Edit `config.yaml`:

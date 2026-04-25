@@ -484,6 +484,10 @@ class CircuitSenseiAgent:
             if user_text.strip():
                 return self._handle_verify_conversation()
             return self._handle_verify_state()
+        if self.session.current_state == SessionState.VERIFY_COMPLETE:
+            return self._handle_verify_complete_state()
+        if self.session.current_state == SessionState.TEST:
+            return self._handle_test_state()
 
         final_text = ""
         for _ in range(self.max_tool_rounds):
@@ -586,6 +590,60 @@ class CircuitSenseiAgent:
         )
         return self._commit_response(self._state_response(text, SessionState.VERIFY, "step needs correction"))
 
+    def _handle_verify_complete_state(self) -> str:
+        """Move from completed visual verification into controlled Arduino testing."""
+
+        text = (
+            "All visual build steps are verified. I will now run the Arduino-side validation. "
+            "Keep the USB connection in place and do not change the breadboard wiring while the test runs."
+        )
+        return self._commit_response(self._state_response(text, SessionState.TEST, "ready for Arduino test"))
+
+    def _handle_test_state(self) -> str:
+        """Run the Arduino test deterministically instead of letting Gemini re-plan."""
+
+        connect = self.tools.execute("arduino_connect", {"port": self.session.arduino_port})
+        self._record_tool_result("arduino_connect", connect)
+        if not connect.get("ok"):
+            text = (
+                "I could not connect to the Arduino yet, so I am staying in the test checkpoint. "
+                f"Expected serial port: {connect.get('expected_port', self.session.arduino_port)}.\n\n"
+                "Check the USB cable, Arduino IDE serial monitor, and config.yaml serial_port, then press /next to retry."
+            )
+            self.session.add_history("assistant", text)
+            return text
+
+        test_type, expected_values = self._test_spec()
+        result = self.tools.execute("run_test_script", {"test_type": test_type, "expected_values": expected_values})
+        self._record_tool_result("run_test_script", result)
+        if not result.get("ok") and result.get("status") != "ok":
+            text = (
+                "The Arduino test command did not complete cleanly. I am staying in the test checkpoint so you can retry.\n\n"
+                f"{json.dumps(result, indent=2, sort_keys=True)}"
+            )
+            self.session.add_history("assistant", text)
+            return text
+
+        passed = bool(result.get("passed", result.get("status") == "ok"))
+        measurements = result.get("measurements", result)
+        verdict = "PASS" if passed else "CHECK NEEDED"
+        text = (
+            f"Arduino test result: {verdict}\n\n"
+            f"Test type: {test_type}\n"
+            f"Measurements: {json.dumps(measurements, sort_keys=True)}\n\n"
+            "Circuit-Sensei is back at IDLE. Start a new goal when you are ready."
+        )
+        return self._commit_response(self._state_response(text, SessionState.IDLE, "test complete"))
+
+    def _test_spec(self) -> tuple[str, dict[str, Any]]:
+        """Choose a simple Arduino validation routine for the current goal."""
+
+        if "divider" in self.session.circuit_goal.lower():
+            return "voltage_divider", {"expected_voltage": 2.5, "tolerance": 0.25, "pin": "A0"}
+        if "button" in self.session.circuit_goal.lower():
+            return "button", {"pin": 2}
+        return "led", {"drive_pin": 9, "sense_pin": "A0"}
+
     def manual_confirm_current_step(self) -> str:
         """Manually mark the current verification step as passed."""
 
@@ -659,7 +717,7 @@ class CircuitSenseiAgent:
 
     def _process_model_text(self, text: str) -> str:
         plan = parse_plan_block(text)
-        if plan is not None:
+        if plan is not None and self.session.current_state == SessionState.PLAN:
             self._set_plan(plan)
 
         try:
