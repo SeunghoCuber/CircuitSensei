@@ -153,6 +153,33 @@ def test_typed_text_during_verify_talks_without_advancing(tmp_path) -> None:
     assert session.verified_steps == []
 
 
+def test_test_state_runs_arduino_without_restarting_plan(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = build_builtin_plan("build a 2.5V voltage divider")
+    session = AgentSession(
+        current_state=SessionState.TEST,
+        circuit_goal="build a 2.5V voltage divider",
+        inventory=["Arduino Uno", "two 10k resistors"],
+        placement_plan=plan,
+        current_step=len(plan),
+        verified_steps=[1, 2, 3],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=_OneShotClient(
+            'Bad replan.\n%%PLAN_JSON%%\n[{"step": 1, "instruction": "Restart"}]\n%%ENDPLAN_JSON%%\n%%STATE%%\n{"next_state":"INSTRUCT","reason":"oops"}\n%%END%%'
+        ),
+    )
+
+    response = agent.handle_user_message("")
+
+    assert "Arduino test result: PASS" in response
+    assert session.current_state == SessionState.IDLE
+    assert session.placement_plan == plan
+    assert session.verified_steps == [1, 2, 3]
+
+
 def _config(tmp_path):
     return {
         "gemini": {"model": "gemini-2.5-flash", "vision_model": "gemini-2.5-flash", "retries": 1},
