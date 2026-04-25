@@ -321,10 +321,6 @@ class FrameAnnotator:
             display = self._point_display_label(point)
             self._draw_label_cv2(cv2, image, (x, y), display, occupied_labels)
 
-        banner = self._banner_text(annotations)
-        if banner:
-            self._draw_banner_cv2(cv2, image, banner)
-
         cv2.imwrite(str(output), image)
         return {
             "ok": True,
@@ -379,10 +375,6 @@ class FrameAnnotator:
             x, y = self._point(point)
             display = self._point_display_label(point)
             self._draw_label_pillow(draw, image.size, (x, y), display, occupied_labels)
-
-        banner = self._banner_text(annotations)
-        if banner:
-            self._draw_banner_pillow(draw, image.size, banner)
 
         image.save(output, format="JPEG", quality=92)
         return {

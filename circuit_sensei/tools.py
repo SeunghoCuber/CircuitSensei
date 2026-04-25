@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -16,6 +17,23 @@ from rich.panel import Panel
 from circuit_sensei.hardware.arduino_tester import ArduinoTester, ArduinoUnavailableError
 from circuit_sensei.hardware.camera import CameraCapture, camera_settings_from_config, image_size_from_config
 from circuit_sensei.hardware.overlay import AnnotationStyle, BreadboardGeometry, FrameAnnotator
+
+
+def config_bool(value: Any, default: bool = False) -> bool:
+    """Coerce config/env boolean values without treating "false" as truthy."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+    return bool(value)
 
 
 @dataclass(frozen=True)
@@ -44,6 +62,7 @@ class GeminiVisionAnalyzer:
                 "passed": True,
                 "analysis": "Mock vision check passed. The requested placement appears aligned with the annotation.",
                 "image_path": str(image_path),
+                "mock": True,
             }
 
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -62,7 +81,9 @@ class GeminiVisionAnalyzer:
 
         prompt = (
             "You are verifying a breadboard placement from a top-down webcam image. "
-            "Return concise JSON-like text with passed true/false, visible issues, and any safety concern. "
+            "Return only JSON with this shape: "
+            '{"passed": true|false, "analysis": "visible issues or OK", "safety_concern": string|null}. '
+            "If the image is unclear or you cannot verify the exact requested placement, passed must be false. "
             f"Instruction to verify: {instruction}"
         )
         data = image.read_bytes()
@@ -77,12 +98,48 @@ class GeminiVisionAnalyzer:
                     ],
                 )
                 text = getattr(response, "text", "") or ""
-                passed = "false" not in text.lower() and "fail" not in text.lower()
+                passed = self._extract_passed_verdict(text)
+                if passed is None:
+                    return {
+                        "ok": False,
+                        "passed": False,
+                        "analysis": (
+                            "Gemini Vision did not return an explicit passed boolean. "
+                            f"Raw response: {text.strip() or '<empty>'}"
+                        ),
+                        "image_path": str(image),
+                    }
                 return {"ok": True, "passed": passed, "analysis": text.strip(), "image_path": str(image)}
             except Exception as exc:  # pragma: no cover - external service
                 last_error = exc
                 time.sleep(0.75 * (2**attempt))
         return {"ok": False, "passed": False, "analysis": f"Gemini Vision failed: {last_error}"}
+
+    @staticmethod
+    def _extract_passed_verdict(text: str) -> bool | None:
+        """Return the explicit Gemini Vision verdict, if one is present."""
+
+        clean = text.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
+            clean = re.sub(r"\s*```$", "", clean)
+
+        candidates = [clean]
+        if "{" in clean and "}" in clean:
+            candidates.append(clean[clean.find("{") : clean.rfind("}") + 1])
+
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and isinstance(payload.get("passed"), bool):
+                return bool(payload["passed"])
+
+        match = re.search(r'["\']?passed["\']?\s*:\s*(true|false)\b', clean, re.IGNORECASE)
+        if match:
+            return match.group(1).lower() == "true"
+        return None
 
 
 class CircuitSenseiTools:
@@ -96,7 +153,7 @@ class CircuitSenseiTools:
         paths = config.get("paths", {})
         gemini = config.get("gemini", {})
 
-        self.mock_mode = bool(hardware.get("mock_mode", True))
+        self.mock_mode = config_bool(hardware.get("mock_mode"), default=True)
         self.frame_path = str(paths.get("frame_path", "/tmp/sensei_frame.jpg"))
         self.annotated_path = str(paths.get("annotated_path", "/tmp/sensei_annotated.jpg"))
         self.annotation_source = str(overlay.get("annotation_source", "reference")).lower().strip()

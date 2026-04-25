@@ -6,7 +6,7 @@ gemini:
 
 hardware:
   mock_mode: false
-  camera_index: 0
+  camera_index: 1
   serial_port: /dev/cu.usbmodem21301
   baud_rate: 115200
   serial_timeout_seconds: 2.0
@@ -41,6 +41,12 @@ overlay:
   banner_font_scale: 0.72
   banner_position: top
   banner_max_lines: 3
+
+elevenlabs:
+  # Get your voice_id from elevenlabs.io/app/voice-lab
+  voice_id: "UgBBYS2sOqTuMpoF3BR0"
+  tts_model: "eleven_turbo_v2_5"      # lowest latency (~400ms)
+  stt_model: "scribe_v1"
 
 paths:
   frame_path: /tmp/sensei_frame.jpg

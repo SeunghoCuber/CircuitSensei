@@ -4,7 +4,7 @@ from rich.console import Console
 
 from circuit_sensei.agent import AgentSession, CircuitSenseiAgent, MockGeminiModelClient
 from circuit_sensei.hardware.overlay import BreadboardGeometry
-from circuit_sensei.tools import CircuitSenseiTools
+from circuit_sensei.tools import CircuitSenseiTools, GeminiVisionAnalyzer, config_bool
 
 
 def test_mock_capture_and_annotate(tmp_path) -> None:
@@ -140,6 +140,24 @@ def test_mock_arduino_voltage_divider(tmp_path) -> None:
     assert connected["ok"] is True
     assert result["status"] == "ok"
     assert result["passed"] is True
+
+
+def test_vision_verdict_requires_explicit_passed_boolean() -> None:
+    assert GeminiVisionAnalyzer._extract_passed_verdict('{"passed": true, "analysis": "OK"}') is True
+    assert GeminiVisionAnalyzer._extract_passed_verdict("```json\n{\"passed\": false}\n```") is False
+    assert GeminiVisionAnalyzer._extract_passed_verdict("Looks okay from here.") is None
+
+
+def test_mock_mode_string_false_disables_mocking(tmp_path) -> None:
+    config = _config(tmp_path)
+    config["hardware"]["mock_mode"] = "false"
+
+    tools = CircuitSenseiTools(config, console=Console(file=None))
+
+    assert config_bool("0", default=True) is False
+    assert config_bool("no", default=True) is False
+    assert tools.mock_mode is False
+    assert tools.vision.mock_mode is False
 
 
 def test_breadboard_geometry_maps_edges() -> None:

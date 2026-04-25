@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(md|txt|yaml|yml\\)$\")",
+      "Bash(pip show *)",
+      "Bash(pip install *)",
+      "Bash(python -c ' *)",
+      "Bash(uvicorn circuit_sensei.server:app --port 8000)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}, size: %{size_download} bytes\\\\n\" http://localhost:8000/api/reference-image)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8000/api/annotated-image)",
+      "Bash(kill %1)"
+    ]
+  }
+}

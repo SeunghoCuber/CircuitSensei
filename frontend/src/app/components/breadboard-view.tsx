@@ -1,160 +1,138 @@
-import { Zap } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, CameraOff, Zap } from "lucide-react";
 import { Card } from "./ui/card";
 
-interface Connection {
-  id: string;
-  from: string;
-  to: string;
-  component?: string;
-  color?: string;
-}
-
 interface BreadboardViewProps {
-  connections: Connection[];
-  currentStep: number;
+  connected: boolean;
+  components: string[];
 }
 
-export function BreadboardView({ connections, currentStep }: BreadboardViewProps) {
-  const rows = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
-  const cols = Array.from({ length: 30 }, (_, i) => i + 1);
+export function BreadboardView({ connected, components }: BreadboardViewProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraOn, setCameraOn] = useState(true);
+  const [displaySrc, setDisplaySrc] = useState("/breadboard-default.jpg");
 
-  const getHoleColor = (row: string, col: number) => {
-    const connection = connections.find(
-      (c) => c.from === `${row}${col}` || c.to === `${row}${col}`
-    );
-    return connection?.color || "transparent";
-  };
+  // Webcam
+  useEffect(() => {
+    if (cameraOn) {
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: false })
+        .then((stream) => {
+          streamRef.current = stream;
+          if (videoRef.current) videoRef.current.srcObject = stream;
+        })
+        .catch((err) => console.warn("Camera unavailable:", err));
+    } else {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+    }
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, [cameraOn]);
+
+  // Poll annotated image every 2 s using fetch so the single download feeds the <img> directly via blob URL
+  useEffect(() => {
+    let cancelled = false;
+    let prevBlob = "";
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/annotated-image?v=${Date.now()}`);
+        if (cancelled) return;
+        if (res.ok) {
+          const blob = await res.blob();
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setDisplaySrc((prev) => {
+            if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+            return url;
+          });
+          prevBlob = url;
+        } else {
+          if (prevBlob) { URL.revokeObjectURL(prevBlob); prevBlob = ""; }
+          setDisplaySrc("/breadboard-default.jpg");
+        }
+      } catch {
+        if (!cancelled) setDisplaySrc("/breadboard-default.jpg");
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      if (prevBlob) URL.revokeObjectURL(prevBlob);
+    };
+  }, []);
 
   return (
-    <Card className="flex-1 bg-zinc-900 border-zinc-800 p-6 overflow-auto">
-      <div className="flex items-center gap-2 mb-6">
-        <Zap className="size-5 text-yellow-400" />
-        <h2>Breadboard Layout</h2>
+    <Card className="flex-1 bg-zinc-900 border-zinc-800 p-4 flex flex-col gap-3 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <Zap className="size-4 text-yellow-400" />
+        <h2 className="text-sm">Breadboard Layout</h2>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setCameraOn((v) => !v)}
+            title={cameraOn ? "Turn camera off" : "Turn camera on"}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition-colors"
+          >
+            {cameraOn ? <Camera className="size-4" /> : <CameraOff className="size-4" />}
+          </button>
+          <div
+            className={`size-2 rounded-full animate-pulse ${connected ? "bg-emerald-500" : "bg-red-500"}`}
+          />
+        </div>
       </div>
 
-      <div className="inline-block min-w-max">
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-6 shadow-2xl border-4 border-zinc-700">
-          {/* Power rails top */}
-          <div className="flex gap-2 mb-4">
-            <div className="flex items-center gap-1">
-              <div className="w-8 h-3 bg-red-600 rounded-sm border border-red-800 text-[8px] text-white flex items-center justify-center">+</div>
-              {cols.map((col) => (
-                <div key={`power-top-${col}`} className="w-3 h-3 bg-red-400 rounded-full border border-red-600" />
-              ))}
-            </div>
-          </div>
-          <div className="flex gap-2 mb-6">
-            <div className="flex items-center gap-1">
-              <div className="w-8 h-3 bg-blue-900 rounded-sm border border-blue-950 text-[8px] text-white flex items-center justify-center">-</div>
-              {cols.map((col) => (
-                <div key={`ground-top-${col}`} className="w-3 h-3 bg-blue-800 rounded-full border border-blue-950" />
-              ))}
-            </div>
-          </div>
-
-          {/* Main breadboard area */}
-          <div className="space-y-1">
-            {rows.slice(0, 5).map((row) => (
-              <div key={row} className="flex items-center gap-1">
-                <div className="w-8 text-[10px] text-zinc-600 text-right pr-1">{row}</div>
-                {cols.map((col) => {
-                  const holeId = `${row}${col}`;
-                  const holeColor = getHoleColor(row, col);
-                  const isActive = holeColor !== "transparent";
-
-                  return (
-                    <div
-                      key={holeId}
-                      className={`w-3 h-3 rounded-full border transition-all ${
-                        isActive
-                          ? "border-zinc-700 ring-2 ring-offset-1 scale-125"
-                          : "border-zinc-400 bg-zinc-800"
-                      }`}
-                      style={{
-                        backgroundColor: isActive ? holeColor : undefined,
-                        ringColor: isActive ? holeColor : undefined,
-                      }}
-                      title={holeId}
-                    />
-                  );
-                })}
+      {/* Camera feed + components row */}
+      <div className="flex gap-3 shrink-0">
+        <div className="w-108 aspect-video bg-zinc-800 rounded-lg overflow-hidden relative shrink-0">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover ${cameraOn ? "block" : "hidden"}`}
+          />
+          {!cameraOn && (
+            <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
+              <div className="text-center space-y-2">
+                <CameraOff className="size-8 mx-auto opacity-30" />
+                <div className="text-xs">Camera off</div>
               </div>
-            ))}
-
-            {/* Center gap */}
-            <div className="h-4 bg-gradient-to-b from-amber-200 to-amber-300 rounded my-1" />
-
-            {rows.slice(5).map((row) => (
-              <div key={row} className="flex items-center gap-1">
-                <div className="w-8 text-[10px] text-zinc-600 text-right pr-1">{row}</div>
-                {cols.map((col) => {
-                  const holeId = `${row}${col}`;
-                  const holeColor = getHoleColor(row, col);
-                  const isActive = holeColor !== "transparent";
-
-                  return (
-                    <div
-                      key={holeId}
-                      className={`w-3 h-3 rounded-full border transition-all ${
-                        isActive
-                          ? "border-zinc-700 ring-2 ring-offset-1 scale-125"
-                          : "border-zinc-400 bg-zinc-800"
-                      }`}
-                      style={{
-                        backgroundColor: isActive ? holeColor : undefined,
-                        ringColor: isActive ? holeColor : undefined,
-                      }}
-                      title={holeId}
-                    />
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-
-          {/* Power rails bottom */}
-          <div className="flex gap-2 mt-6">
-            <div className="flex items-center gap-1">
-              <div className="w-8 h-3 bg-red-600 rounded-sm border border-red-800 text-[8px] text-white flex items-center justify-center">+</div>
-              {cols.map((col) => (
-                <div key={`power-bottom-${col}`} className="w-3 h-3 bg-red-400 rounded-full border border-red-600" />
-              ))}
             </div>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <div className="flex items-center gap-1">
-              <div className="w-8 h-3 bg-blue-900 rounded-sm border border-blue-950 text-[8px] text-white flex items-center justify-center">-</div>
-              {cols.map((col) => (
-                <div key={`ground-bottom-${col}`} className="w-3 h-3 bg-blue-800 rounded-full border border-blue-950" />
-              ))}
-            </div>
-          </div>
-
-          {/* Column numbers */}
-          <div className="flex gap-1 mt-3 ml-9">
-            {cols.map((col) => (
-              <div key={`col-${col}`} className="w-3 text-[8px] text-zinc-600 text-center">
-                {col % 5 === 0 ? col : ""}
-              </div>
-            ))}
-          </div>
+          )}
         </div>
 
-        {/* Legend */}
-        <div className="mt-4 flex gap-4 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-emerald-500 border border-emerald-700" />
-            <span className="text-zinc-400">Component</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-blue-500 border border-blue-700" />
-            <span className="text-zinc-400">Wire</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-purple-500 border border-purple-700" />
-            <span className="text-zinc-400">Power</span>
-          </div>
+        {/* Components list */}
+        <div className="flex-1 min-w-0 bg-zinc-800/50 rounded-lg p-3 flex flex-col gap-1.5 overflow-y-auto">
+          <div className="text-xs font-medium text-zinc-400 shrink-0">Components:</div>
+          {components.length === 0 ? (
+            <div className="text-xs text-zinc-600 italic">No plan yet</div>
+          ) : (
+            <ul className="space-y-1">
+              {components.map((c, i) => (
+                <li key={i} className="text-xs text-zinc-300 leading-snug">
+                  {c}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
+      </div>
+
+      {/* Annotated breadboard image — relative+absolute so percentage sizing resolves correctly */}
+      <div className="flex-1 min-h-0 relative">
+        <img
+          src={displaySrc}
+          alt="Breadboard layout"
+          className="absolute inset-0 w-full h-full object-contain rounded-lg"
+        />
       </div>
     </Card>
   );

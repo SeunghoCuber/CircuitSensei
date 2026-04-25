@@ -37,7 +37,7 @@ export function StatusBar({ agentState, onToggleDrawer }: StatusBarProps) {
         <Button
           variant="outline"
           size="sm"
-          className="border-zinc-700 hover:bg-zinc-800"
+          className="border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-300 hover:text-zinc-950"
           onClick={onToggleDrawer}
         >
           <PanelRight className="size-4 mr-2" />

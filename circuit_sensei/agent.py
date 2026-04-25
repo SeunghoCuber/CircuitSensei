@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any, Protocol
 
 from circuit_sensei.prompts.system_prompt import SYSTEM_PROMPT
-from circuit_sensei.tools import CircuitSenseiTools, ToolCall
+from circuit_sensei.tools import CircuitSenseiTools, ToolCall, config_bool
 
 
 class SessionState(str, Enum):
@@ -27,7 +27,7 @@ class SessionState(str, Enum):
 
 
 ALLOWED_TRANSITIONS: dict[SessionState, set[SessionState]] = {
-    SessionState.IDLE: {SessionState.INTAKE},
+    SessionState.IDLE: {SessionState.INTAKE, SessionState.PLAN},
     SessionState.INTAKE: {SessionState.PLAN, SessionState.INTAKE},
     SessionState.PLAN: {SessionState.INSTRUCT, SessionState.PLAN},
     SessionState.INSTRUCT: {SessionState.VERIFY, SessionState.IDLE},
@@ -45,6 +45,7 @@ class AgentSession:
     circuit_goal: str = ""
     inventory: list[str] = field(default_factory=list)
     placement_plan: list[dict[str, Any]] = field(default_factory=list)
+    components: list[str] = field(default_factory=list)
     current_step: int = 0
     verified_steps: list[int] = field(default_factory=list)
     conversation_history: list[dict[str, Any]] = field(default_factory=list)
@@ -77,6 +78,7 @@ class AgentSession:
             "circuit_goal": self.circuit_goal,
             "inventory": self.inventory,
             "placement_plan": self.placement_plan,
+            "components": self.components,
             "current_step": self.current_step + 1 if self.placement_plan else 0,
             "verified_steps": self.verified_steps,
             "breadboard_geometry": self.breadboard_geometry,
@@ -111,6 +113,7 @@ class ModelClient(Protocol):
 
 STATE_BLOCK_RE = re.compile(r"%%STATE%%\s*(\{.*?\})\s*%%END%%", re.DOTALL)
 PLAN_BLOCK_RE = re.compile(r"%%PLAN_JSON%%\s*(\[.*?\])\s*%%ENDPLAN_JSON%%", re.DOTALL)
+COMPONENTS_BLOCK_RE = re.compile(r"%%COMPONENTS_JSON%%\s*(\[.*?\])\s*%%ENDCOMPONENTS_JSON%%", re.DOTALL)
 HOLE_REF_RE = re.compile(r"\b([A-Ja-j])\s*([1-9][0-9]?)\b")
 COLUMN_REF_RE = re.compile(r"\bcol(?:umn)?s?\.?\s*([1-9][0-9]?)\b", re.IGNORECASE)
 
@@ -138,6 +141,7 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
         return [
             {
                 "step": 1,
+                "title": "Place R1",
                 "instruction": "With power disconnected, place R1 from A10 to A20.",
                 "verification": "Verify a resistor bridges A10 and A20.",
                 "annotations": {
@@ -157,6 +161,7 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
             },
             {
                 "step": 2,
+                "title": "Place R2",
                 "instruction": "Place R2 from B20 to B30, using B20 as the same midpoint node as R1's A20 leg.",
                 "verification": "Verify R2 bridges B20 and B30. B20 is electrically common with A20, but it is a separate physical hole.",
                 "annotations": {
@@ -176,6 +181,7 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
             },
             {
                 "step": 3,
+                "title": "Wire Arduino leads",
                 "instruction": "With Arduino outputs still inactive, connect A0 to C20, D9 to B10, and GND to C30.",
                 "verification": "Verify A0 reaches C20, D9 reaches B10, and GND reaches C30. These use free holes on the same nodes as the divider.",
                 "annotations": {
@@ -192,6 +198,7 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
     return [
         {
             "step": 1,
+            "title": "Place resistor",
             "instruction": "With power disconnected, place the current-limit resistor from A10 to A20.",
             "verification": "Verify the resistor bridges A10 and A20.",
             "annotations": {
@@ -211,6 +218,7 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
         },
         {
             "step": 2,
+            "title": "Place LED",
             "instruction": "Place the LED anode at E20 and cathode at E25.",
             "verification": "Verify LED polarity: longer/anode leg at E20, shorter/cathode leg at E25.",
             "annotations": {
@@ -230,6 +238,7 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
         },
         {
             "step": 3,
+            "title": "Wire Arduino",
             "instruction": "With Arduino outputs still inactive, connect D9 to column 10 and GND to column 25.",
             "verification": "Verify D9 reaches column 10 and GND reaches column 25; no power has been applied yet.",
             "annotations": {
@@ -243,6 +252,15 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
     ]
 
 
+def build_builtin_components(circuit_goal: str) -> list[str]:
+    """Return a conservative parts list when Gemini omits components JSON."""
+
+    goal = circuit_goal.lower()
+    if "divider" in goal:
+        return ["2 × resistor (equal value, e.g. 10 kΩ)", "3 × jumper wire"]
+    return ["1 × LED", "1 × 330 Ω resistor", "3 × jumper wire"]
+
+
 def summarize_builtin_plan(plan: list[dict[str, Any]], goal: str) -> str:
     """Create a concise user-facing summary for a built-in placement plan."""
 
@@ -252,6 +270,23 @@ def summarize_builtin_plan(plan: list[dict[str, Any]], goal: str) -> str:
         calc = "For an LED on 5 V, R = (5 V - about 2 V) / 5-10 mA, so 330 ohm to 1 kOhm is a gentle prototype range."
     steps = "\n".join(f"{item['step']}. {item['instruction']}" for item in plan)
     return f"{calc}\n\nPlacement plan:\n{steps}"
+
+
+def summarize_plan_ready(goal: str) -> str:
+    """Return the compact chat message shown after a plan is available."""
+
+    label = goal.strip()
+    if label:
+        label = re.sub(r"\bi\s+have\b.*$", "", label, flags=re.IGNORECASE).strip(" .")
+        label = re.sub(r"^(?:goal\s*:\s*)?(?:build|make)\s+", "", label, flags=re.IGNORECASE).strip(" .")
+    if not label or len(label) > 80:
+        label = "this circuit"
+    elif not re.match(r"^(?:a|an|the)\s+", label, flags=re.IGNORECASE) and "circuit" not in label.lower():
+        label = "this circuit"
+    return (
+        f"Okay, I've produced a comprehensive plan to build {label}. "
+        "Let me know when you're ready to get started."
+    )
 
 
 def breadboard_node(row: str, col: int) -> tuple[str, int]:
@@ -500,12 +535,17 @@ class GeminiModelClient:
             f"{json.dumps(history, indent=2, sort_keys=True)}\n\n"
             "Important controller contract:\n"
             "- Do not skip allowed state transitions.\n"
+            "- In IDLE, transition to INTAKE unless the user already supplied both goal and inventory; then transition to PLAN.\n"
             "- In INTAKE, transition only to INTAKE or PLAN.\n"
             "- In PLAN, include %%PLAN_JSON%% with step annotations before moving to INSTRUCT.\n"
+            "  Each plan step must include a 'title' field: a 2-5 word concise label (e.g. 'Place R1 resistor').\n"
+            "  Also include %%COMPONENTS_JSON%% with a flat string list of required components (e.g. ['1 × LED', '2 × 330 Ω resistor']).\n"
             "- Plan with breadboard topology: A-E in the same column are electrically connected; F-J in the same column are electrically connected; E/F are separated by the center gap.\n"
             "- Never put two physical leads into the exact same hole. Use an electrically equivalent free hole on the same node instead.\n"
             "- In INSTRUCT, give exactly one concise physical step; the host app handles camera annotation.\n"
-            "- In VERIFY, wait for vision tool results before advancing.\n\n"
+            "  End instruction messages with: 'When you've placed it, say **ready** to check with the camera — or **looks good** to confirm yourself.'\n"
+            "- In VERIFY, wait for vision tool results before advancing.\n"
+            "  On failure tell the user: 'Say **retry** to check again, or **looks good** to confirm manually.' Never mention /next or /confirm.\n\n"
             "Return either tool calls or a normal user-facing response with the required state block."
         )
 
@@ -564,8 +604,10 @@ class MockGeminiModelClient:
         if state == SessionState.PLAN:
             plan = self._mock_plan(session)
             plan_block = "%%PLAN_JSON%%\n" + json.dumps(plan, indent=2) + "\n%%ENDPLAN_JSON%%"
+            components = self._mock_components(session)
+            components_block = "%%COMPONENTS_JSON%%\n" + json.dumps(components) + "\n%%ENDCOMPONENTS_JSON%%"
             body = self._plan_summary(plan, session.circuit_goal)
-            return ModelTurn(text=f"{body}\n\n{plan_block}\n{self._state_json('INSTRUCT', 'placement plan ready')}")
+            return ModelTurn(text=f"{body}\n\n{plan_block}\n{components_block}\n{self._state_json('INSTRUCT', 'placement plan ready')}")
         if state == SessionState.INSTRUCT:
             return self._mock_instruct(session)
         if state == SessionState.VERIFY:
@@ -643,6 +685,9 @@ class MockGeminiModelClient:
             return "voltage_divider", {"expected_voltage": 2.5, "tolerance": 0.2}
         return "led", {"sense_pin": "A0"}
 
+    def _mock_components(self, session: AgentSession) -> list[str]:
+        return build_builtin_components(session.circuit_goal)
+
     def _plan_summary(self, plan: list[dict[str, Any]], goal: str) -> str:
         return summarize_builtin_plan(plan, goal)
 
@@ -677,6 +722,11 @@ class CircuitSenseiAgent:
             self.session.add_history("assistant", response)
             return response
 
+        # Convert state-aware natural-language proceed phrases to empty string so the
+        # agent's deterministic handlers (INSTRUCT, VERIFY) fire instead of chat.
+        if user_text.strip() and self._is_proceed_command(user_text):
+            user_text = ""
+
         if user_text.strip():
             self.session.add_history("user", user_text.strip())
         else:
@@ -684,6 +734,9 @@ class CircuitSenseiAgent:
 
         if self._is_manual_confirm(user_text):
             return self.manual_confirm_current_step()
+        if self.session.current_state == SessionState.PLAN and self.session.placement_plan and not user_text.strip():
+            self.session.apply_transition(SessionState.INSTRUCT)
+            return self._handle_instruction_state()
         if self.session.current_state == SessionState.INSTRUCT and self.session.placement_plan:
             return self._handle_instruction_state()
         if self.session.current_state == SessionState.VERIFY and self.session.placement_plan:
@@ -736,8 +789,8 @@ class CircuitSenseiAgent:
             self._record_tool_result("capture_frame", capture)
             if not capture.get("ok"):
                 text = (
-                    "I could not capture the webcam frame. Check the webcam index and lighting, "
-                    "then press /next to retry. If needed, describe the board placement manually."
+                    "I could not capture the webcam frame. Check the webcam connection and lighting, "
+                    "then say **retry** to try again."
                 )
                 return self._commit_response(self._state_response(text, SessionState.VERIFY, "camera capture failed"))
         else:
@@ -765,11 +818,10 @@ class CircuitSenseiAgent:
             return self._commit_response(self._state_response(text, SessionState.INSTRUCT, "annotation missing"))
 
         instruction = str(step.get("instruction", "Place the next component as annotated."))
-        path = annotated.get("annotated_path", self.tools.annotated_path)
         text = (
             f"{instruction}\n\n"
-            f"Annotated guidance saved to {path}. After placing it, press /next for Gemini Vision verification. "
-            "If the webcam cannot see enough detail but you personally checked the placement, use /confirm."
+            "When you've placed it, say **ready** to run the camera check — "
+            "or **looks good** if you'd prefer to confirm yourself."
         )
         return self._commit_response(self._state_response(text, SessionState.VERIFY, "instruction shown"))
 
@@ -919,6 +971,56 @@ class CircuitSenseiAgent:
         add_rail(rail_name, min(5, max(2, self.tools.geometry.columns)), label)
         return points
 
+    @staticmethod
+    def _summarize_vision_analysis(raw: Any) -> str:
+        """Convert Gemini Vision output into concise user-facing text."""
+
+        if isinstance(raw, dict):
+            payload = raw
+            detail = payload.get("analysis")
+            safety = payload.get("safety_concern")
+            parts: list[str] = []
+            if isinstance(detail, str) and detail.strip():
+                parts.append(detail.strip())
+            if isinstance(safety, str) and safety.strip() and safety.strip().lower() not in {"none", "null"}:
+                parts.append(f"Safety concern: {safety.strip()}")
+            if parts:
+                return " ".join(parts)
+
+        text = str(raw or "").strip()
+        if not text:
+            return "Placement did not match the requested step."
+
+        clean = text
+        if clean.startswith("```"):
+            clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
+            clean = re.sub(r"\s*```$", "", clean)
+
+        candidates = [clean]
+        if "{" in clean and "}" in clean:
+            candidates.append(clean[clean.find("{") : clean.rfind("}") + 1])
+
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+            if not isinstance(payload, dict):
+                continue
+
+            detail = payload.get("analysis")
+            safety = payload.get("safety_concern")
+            parts = []
+            if isinstance(detail, str) and detail.strip():
+                parts.append(detail.strip())
+            if isinstance(safety, str) and safety.strip() and safety.strip().lower() not in {"none", "null"}:
+                parts.append(f"Safety concern: {safety.strip()}")
+            if parts:
+                return " ".join(parts)
+
+        return text
+
     def _handle_verify_state(self) -> str:
         """Capture the board and run Gemini Vision verification for the current step."""
 
@@ -930,33 +1032,41 @@ class CircuitSenseiAgent:
         self._record_tool_result("capture_frame", capture)
         if not capture.get("ok"):
             text = (
-                "I could not capture the webcam frame for verification. Check the camera connection, "
-                "then press /next to retry."
+                "I could not capture the webcam frame. Check the camera connection, "
+                "then say **retry** to try again."
             )
             return self._commit_response(self._state_response(text, SessionState.VERIFY, "camera capture failed"))
 
         analysis = self.tools.execute("analyze_board", {"instruction": instruction})
         self._record_tool_result("analyze_board", analysis)
         if not analysis.get("ok"):
+            raw = analysis.get("analysis") or analysis.get("error") or ""
+            summarized = self._summarize_vision_analysis(raw)
+            detail = (
+                "The camera service ran into a technical issue. This usually resolves on retry."
+                if "failed" in str(raw).lower() or "exception" in str(raw).lower() or "error" in str(raw).lower()
+                else summarized
+            )
             text = (
-                "Gemini Vision could not verify this step yet. Press /next to retry, or use /confirm "
-                "if you personally checked the placement against the instruction.\n\n"
-                f"{analysis.get('analysis', analysis.get('error', 'unknown error'))}"
+                "The camera check couldn't complete. Say **retry** to try again, "
+                f"or **looks good** to confirm the placement yourself.\n\n{detail}".rstrip()
             )
             return self._commit_response(self._state_response(text, SessionState.VERIFY, "vision check unavailable"))
 
         if bool(analysis.get("passed")):
             if self.session.current_step + 1 >= len(self.session.placement_plan):
-                text = "Gemini Vision check passed. All build steps are visually verified."
+                text = "Placement looks correct! All build steps are visually verified."
                 return self._commit_response(self._state_response(text, SessionState.VERIFY_COMPLETE, "all steps verified"))
-            text = "Gemini Vision check passed. Press /next for the next annotated build step."
+            text = "Placement looks correct! Say **ready** to continue to the next step."
             return self._commit_response(self._state_response(text, SessionState.INSTRUCT, "step verified"))
 
-        details = str(analysis.get("analysis", "Placement did not match the requested step."))
+        details = self._summarize_vision_analysis(
+            analysis.get("analysis", "Placement did not match the requested step.")
+        )
         text = (
-            "Gemini Vision is not satisfied yet. Fix this step and press /next to retry. "
-            "If the image is the problem and you personally verified the placement, use /confirm.\n\n"
-            f"{details}"
+            "The camera check flagged an issue with this placement. "
+            "Adjust it, then say **retry** to check again — "
+            f"or **looks good** to confirm manually.\n\n{details}"
         )
         return self._commit_response(self._state_response(text, SessionState.VERIFY, "step needs correction"))
 
@@ -978,7 +1088,7 @@ class CircuitSenseiAgent:
             text = (
                 "I could not connect to the Arduino yet, so I am staying in the test checkpoint. "
                 f"Expected serial port: {connect.get('expected_port', self.session.arduino_port)}.\n\n"
-                "Check the USB cable, Arduino IDE serial monitor, and config.yaml serial_port, then press /next to retry."
+                "Check the USB cable, Arduino IDE serial monitor, and config.yaml serial_port, then say **retry** to try again."
             )
             self.session.add_history("assistant", text)
             return text
@@ -1038,13 +1148,13 @@ class CircuitSenseiAgent:
             self.session.current_step = len(self.session.placement_plan)
             self.session.apply_transition(SessionState.VERIFY_COMPLETE)
             text = (
-                f"Manual confirmation accepted for step {step_number}. "
-                "All build steps are now verified. Press /next to move to Arduino testing."
+                f"Step {step_number} confirmed. "
+                "All build steps are verified — say **ready** to move on to Arduino testing."
             )
         else:
             self.session.current_step += 1
             self.session.apply_transition(SessionState.INSTRUCT)
-            text = f"Manual confirmation accepted for step {step_number}. Press /next for the next annotated build step."
+            text = f"Step {step_number} confirmed. Say **ready** to continue to the next step."
 
         self.session.add_history("assistant", text)
         return text
@@ -1056,8 +1166,8 @@ class CircuitSenseiAgent:
         turn = self.model_client.generate(self.session, declarations)
         if turn.tool_calls:
             text = (
-                "I am still waiting at the verification checkpoint. Press /next to retry Gemini Vision, "
-                "or use /confirm if you personally checked the placement."
+                "I'm still at the verification checkpoint. Say **retry** to re-run the camera check, "
+                "or **looks good** to confirm the placement yourself."
             )
             self.session.add_history("assistant", text)
             return text
@@ -1067,7 +1177,8 @@ class CircuitSenseiAgent:
         except Exception:
             clean_text = turn.text.strip()
         clean_text = PLAN_BLOCK_RE.sub("", clean_text).strip() or (
-            "I am still at the verification checkpoint. Press /next to retry vision or /confirm to manually accept this step."
+            "I'm still at the verification checkpoint. Say **retry** to re-run the camera check, "
+            "or **looks good** to confirm manually."
         )
         self.session.add_history("assistant", clean_text)
         return clean_text
@@ -1087,8 +1198,17 @@ class CircuitSenseiAgent:
 
     def _process_model_text(self, text: str) -> str:
         plan = parse_plan_block(text)
-        if plan is not None and self.session.current_state == SessionState.PLAN:
+        accepted_plan = plan is not None and self.session.current_state in {
+            SessionState.IDLE,
+            SessionState.INTAKE,
+            SessionState.PLAN,
+        }
+        if accepted_plan:
             self._set_plan(plan)
+
+        components = parse_components_block(text)
+        if components is not None:
+            self.session.components = components
 
         try:
             clean_text, transition = parse_state_transition(text)
@@ -1097,13 +1217,35 @@ class CircuitSenseiAgent:
             transition = StateTransition(next_state=self._default_next_state(), reason="missing state block")
 
         previous_state = self.session.current_state
+        requested_transition = transition
         transition = self._repair_transition(transition)
-        if self._should_synthesize_plan(previous_state, transition.next_state):
-            self._ensure_plan()
+        jumped_to_instruction_before_plan = (
+            previous_state in {SessionState.IDLE, SessionState.INTAKE}
+            and requested_transition.next_state
+            in {SessionState.INSTRUCT, SessionState.VERIFY, SessionState.VERIFY_COMPLETE, SessionState.TEST}
+        )
+        omitted_structured_plan = (
+            not self.session.placement_plan
+            and previous_state == SessionState.PLAN
+            and requested_transition.next_state
+            in {SessionState.INSTRUCT, SessionState.VERIFY, SessionState.VERIFY_COMPLETE, SessionState.TEST}
+        )
+        if (
+            jumped_to_instruction_before_plan
+            or omitted_structured_plan
+            or self._should_synthesize_plan(previous_state, transition.next_state)
+        ):
+            if not self.session.placement_plan:
+                self._ensure_plan()
+            elif not self.session.components:
+                self.session.components = build_builtin_components(self.session.circuit_goal)
             if previous_state == SessionState.PLAN and transition.next_state == SessionState.PLAN:
                 transition = StateTransition(next_state=SessionState.INSTRUCT, reason="built-in plan ready")
-            if "placement plan" not in clean_text.lower():
-                clean_text = f"{clean_text}\n\n{summarize_builtin_plan(self.session.placement_plan, self.session.circuit_goal)}".strip()
+            clean_text = summarize_plan_ready(self.session.circuit_goal)
+        elif accepted_plan and previous_state in {SessionState.IDLE, SessionState.INTAKE, SessionState.PLAN}:
+            if not self.session.components:
+                self.session.components = build_builtin_components(self.session.circuit_goal)
+            clean_text = summarize_plan_ready(self.session.circuit_goal)
         if previous_state == SessionState.PLAN and self.session.plan_repairs and "Adjusted for breadboard hole occupancy" not in clean_text:
             repair_text = "\n".join(f"- {repair}" for repair in self.session.plan_repairs)
             clean_text = f"{clean_text}\n\nAdjusted for breadboard hole occupancy:\n{repair_text}".strip()
@@ -1111,6 +1253,7 @@ class CircuitSenseiAgent:
         self.session.apply_transition(transition.next_state)
         self._advance_step_if_verified(previous_state, transition.next_state)
         clean_text = PLAN_BLOCK_RE.sub("", clean_text).strip()
+        clean_text = COMPONENTS_BLOCK_RE.sub("", clean_text).strip()
         return clean_text
 
     def _set_plan(self, plan: list[dict[str, Any]]) -> None:
@@ -1127,6 +1270,8 @@ class CircuitSenseiAgent:
 
         if not self.session.placement_plan:
             self._set_plan(build_builtin_plan(self.session.circuit_goal))
+        if not self.session.components:
+            self.session.components = build_builtin_components(self.session.circuit_goal)
 
     def _should_synthesize_plan(self, previous_state: SessionState, next_state: SessionState) -> bool:
         if self.session.placement_plan:
@@ -1143,6 +1288,14 @@ class CircuitSenseiAgent:
         if requested in ALLOWED_TRANSITIONS[current]:
             return transition
 
+        if current == SessionState.IDLE and requested in {
+            SessionState.PLAN,
+            SessionState.INSTRUCT,
+            SessionState.VERIFY,
+            SessionState.VERIFY_COMPLETE,
+            SessionState.TEST,
+        } and self.session.circuit_goal and self.session.inventory:
+            return StateTransition(SessionState.PLAN, "repaired skipped intake state")
         if current == SessionState.INTAKE and requested == SessionState.INSTRUCT:
             return StateTransition(SessionState.PLAN, "repaired skipped PLAN state")
         if current == SessionState.INTAKE and self.session.circuit_goal and self.session.inventory:
@@ -1158,6 +1311,8 @@ class CircuitSenseiAgent:
         """Return a deterministic safe transition for the current state."""
 
         if self.session.current_state == SessionState.INTAKE and self.session.circuit_goal and self.session.inventory:
+            return SessionState.PLAN
+        if self.session.current_state == SessionState.IDLE and self.session.circuit_goal and self.session.inventory:
             return SessionState.PLAN
         if self.session.current_state == SessionState.PLAN and self.session.placement_plan:
             return SessionState.INSTRUCT
@@ -1213,20 +1368,46 @@ class CircuitSenseiAgent:
 
         goal_match = re.search(r"(?:goal|build|make)\s*:\s*(.+?)(?:\n|$)", text, re.IGNORECASE)
         inv_match = re.search(r"(?:inventory|components|available)\s*:\s*(.+?)(?:\n|$)", text, re.IGNORECASE)
+        have_match = re.search(r"\bi\s+have\s+(.+?)(?:\.|\n|$)", text, re.IGNORECASE)
         if goal_match:
             self.session.circuit_goal = goal_match.group(1).strip()
+        elif have_match and self.session.current_state in {SessionState.IDLE, SessionState.INTAKE} and not self.session.circuit_goal:
+            self.session.circuit_goal = text[: have_match.start()].strip(" .") or text
         elif self.session.current_state in {SessionState.IDLE, SessionState.INTAKE} and not self.session.circuit_goal:
             self.session.circuit_goal = text
 
         if inv_match:
             raw_inventory = inv_match.group(1)
             self.session.inventory = [item.strip() for item in re.split(r"[,;]", raw_inventory) if item.strip()]
+        elif have_match:
+            raw_inventory = have_match.group(1)
+            self.session.inventory = [
+                re.sub(r"^(?:and|a|an)\s+", "", item.strip(), flags=re.IGNORECASE)
+                for item in re.split(r",|;", raw_inventory.replace(" and ", ", "))
+                if item.strip()
+            ]
 
     def _is_emergency(self, user_text: str) -> bool:
         return bool(re.search(r"\b(smoke|hot|heat|burn|burning|melting)\b", user_text, re.IGNORECASE))
 
+    def _is_proceed_command(self, user_text: str) -> bool:
+        """Return True when the user clearly means 'continue/retry' in the current state."""
+        if self.session.current_state not in {
+            SessionState.PLAN, SessionState.INSTRUCT, SessionState.VERIFY, SessionState.VERIFY_COMPLETE,
+        }:
+            return False
+        text = user_text.strip().lower().rstrip(".,!?;:")
+        return text in {
+            "next", "continue", "proceed", "go", "go ahead", "move on",
+            "ready", "i'm ready", "im ready", "ok", "okay",
+            "retry", "try again", "check again", "re-check", "recheck", "check",
+            "done", "placed", "placed it", "i placed it", "i'm done", "im done",
+            "all done", "it's in", "its in", "let's go", "lets go",
+            "yep", "yes", "sure", "go on",
+        }
+
     def _is_manual_confirm(self, user_text: str) -> bool:
-        text = user_text.strip().lower()
+        text = user_text.strip().lower().rstrip(".,!?;:")
         if text in {
             "/confirm",
             "confirm",
@@ -1234,7 +1415,22 @@ class CircuitSenseiAgent:
             "manual confirm",
             "manually confirm",
             "looks good",
+            "it looks good",
             "looks correct",
+            "it looks correct",
+            "all good",
+            "it's good",
+            "its good",
+            "i checked",
+            "i checked it",
+            "i verified",
+            "i verified it",
+            "it's correct",
+            "its correct",
+            "it's right",
+            "its right",
+            "skip vision",
+            "trust me",
             "verified",
             "accept",
         }:
@@ -1271,12 +1467,24 @@ def parse_plan_block(text: str) -> list[dict[str, Any]] | None:
     return [dict(item) for item in payload]
 
 
+def parse_components_block(text: str) -> list[str] | None:
+    """Parse an optional components list JSON block."""
+
+    match = COMPONENTS_BLOCK_RE.search(text)
+    if not match:
+        return None
+    payload = json.loads(match.group(1))
+    if not isinstance(payload, list):
+        return None
+    return [str(item) for item in payload]
+
+
 def create_model_client(config: dict[str, Any]) -> ModelClient:
     """Create a mock or real Gemini model client from configuration."""
 
     gemini = config.get("gemini", {})
     hardware = config.get("hardware", {})
-    if bool(hardware.get("mock_mode", True)):
+    if config_bool(hardware.get("mock_mode"), default=True):
         return MockGeminiModelClient()
     return GeminiModelClient(
         model=str(gemini.get("model", "gemini-2.5-flash")),

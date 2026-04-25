@@ -65,7 +65,8 @@ def test_mock_agent_progresses_from_idle_to_plan(tmp_path) -> None:
     assert session.current_state == SessionState.PLAN
 
     response = agent.handle_user_message("")
-    assert "placement plan" in response.lower()
+    assert "comprehensive plan" in response.lower()
+    assert "current-limit resistor" not in response
     assert session.current_state == SessionState.INSTRUCT
     assert len(session.placement_plan) == 3
 
@@ -85,8 +86,52 @@ def test_agent_repairs_gemini_skipping_plan_state(tmp_path) -> None:
 
     response = agent.handle_user_message("")
 
-    assert response == "Ready."
+    assert "comprehensive plan" in response.lower()
     assert session.current_state == SessionState.PLAN
+    assert len(session.placement_plan) == 3
+
+
+def test_agent_repairs_idle_instruction_jump_with_plan_payload(tmp_path) -> None:
+    config = _config(tmp_path)
+    session = AgentSession()
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=_OneShotClient(
+            "Great! Insert the resistor into E10 and E12.\n"
+            '%%STATE%%\n{"next_state":"INSTRUCT","reason":"jumped ahead"}\n%%END%%'
+        ),
+    )
+
+    response = agent.handle_user_message(
+        "Build a resistor and LED in series. I have a 330 resistor, jumpwires, and LED."
+    )
+
+    assert "comprehensive plan" in response.lower()
+    assert "E10" not in response
+    assert session.current_state == SessionState.PLAN
+    assert len(session.placement_plan) == 3
+
+
+def test_ready_from_prepared_plan_shows_one_instruction(tmp_path) -> None:
+    config = _config(tmp_path)
+    session = AgentSession(
+        current_state=SessionState.PLAN,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED", "330 ohm resistor"],
+        placement_plan=build_builtin_plan("blink an LED"),
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=_OneShotClient("This should not be called."),
+    )
+
+    response = agent.handle_user_message("yes")
+
+    assert "current-limit resistor" in response
+    assert response.count("current-limit resistor") == 1
+    assert session.current_state == SessionState.VERIFY
 
 
 def test_agent_synthesizes_plan_when_gemini_omits_plan_json(tmp_path) -> None:
@@ -104,7 +149,7 @@ def test_agent_synthesizes_plan_when_gemini_omits_plan_json(tmp_path) -> None:
 
     response = agent.handle_user_message("")
 
-    assert "placement plan" in response.lower()
+    assert "comprehensive plan" in response.lower()
     assert session.current_state == SessionState.INSTRUCT
     assert session.placement_plan[0]["instruction"] == "With power disconnected, place R1 from A10 to A20."
 
@@ -125,7 +170,7 @@ def test_manual_confirm_advances_verify_step(tmp_path) -> None:
 
     response = agent.handle_user_message("I checked it")
 
-    assert "Manual confirmation accepted for step 1" in response
+    assert "Step 1 confirmed" in response
     assert session.current_state == SessionState.INSTRUCT
     assert session.current_step == 1
     assert session.verified_steps == [1]
@@ -153,6 +198,29 @@ def test_typed_text_during_verify_talks_without_advancing(tmp_path) -> None:
     assert session.current_state == SessionState.VERIFY
     assert session.current_step == 0
     assert session.verified_steps == []
+
+
+def test_verify_failure_message_summarizes_json_analysis(tmp_path) -> None:
+    config = _config(tmp_path)
+    session = AgentSession(
+        current_state=SessionState.VERIFY,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED", "330 ohm resistor"],
+        placement_plan=build_builtin_plan("blink an LED"),
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=_VerifyFailureTools(config, console=Console(file=None)),
+        model_client=_OneShotClient("unused"),
+    )
+
+    response = agent.handle_user_message("ready")
+
+    assert "camera check flagged an issue" in response.lower()
+    assert "no led is visible on the breadboard" in response.lower()
+    assert "```json" not in response
+    assert '"passed": false' not in response.lower()
+    assert session.current_state == SessionState.VERIFY
 
 
 def test_test_state_runs_arduino_without_restarting_plan(tmp_path) -> None:
@@ -285,6 +353,32 @@ class _OneShotClient:
 
     def generate(self, session: AgentSession, function_declarations):
         return ModelTurn(text=self.text)
+
+
+class _VerifyFailureTools(CircuitSenseiTools):
+    def execute(self, name: str, args=None):
+        if name == "capture_frame":
+            return {
+                "ok": True,
+                "path": self.frame_path,
+                "message": "Webcam frame captured.",
+            }
+        if name == "analyze_board":
+            return {
+                "ok": True,
+                "passed": False,
+                "analysis": (
+                    "```json\n"
+                    "{\n"
+                    '  "passed": false,\n'
+                    '  "analysis": "No LED is visible on the breadboard in the provided image or any of its crops. Therefore, the requested placement of the LED with its anode in A15 and cathode in A20 cannot be verified.",\n'
+                    '  "safety_concern": null\n'
+                    "}\n"
+                    "```"
+                ),
+                "image_path": self.frame_path,
+            }
+        return super().execute(name, args)
 
 
 def json_plan_with_duplicate_hole() -> str:

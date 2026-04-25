@@ -15,7 +15,7 @@ from rich.prompt import Prompt
 
 from circuit_sensei.agent import AgentSession, CircuitSenseiAgent, create_model_client
 from circuit_sensei.hardware.overlay import BreadboardGeometry
-from circuit_sensei.tools import CircuitSenseiTools
+from circuit_sensei.tools import CircuitSenseiTools, config_bool
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.real:
         config["hardware"]["mock_mode"] = False
 
-    mock_mode = bool(config["hardware"].get("mock_mode", True))
+    mock_mode = config_bool(config["hardware"].get("mock_mode"), default=True)
     if not mock_mode and not os.environ.get("GEMINI_API_KEY"):
         console.print("[red]GEMINI_API_KEY is missing. Set it or run with --mock.[/red]")
         return 2

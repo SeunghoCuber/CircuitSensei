@@ -147,6 +147,7 @@
     font-size: var(--text-xl);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
+    color: #f4f4f5;
   }
 
   h3 {
@@ -178,4 +179,8 @@
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
   }
+}
+
+.bg-zinc-900 [class~="text-sm"]:not([class*="text-zinc"]):not([class*="text-white"]):not([class*="text-emerald"]):not([class*="text-red"]):not([class*="text-blue"]):not([class*="text-yellow"]):not([class*="text-purple"]) {
+  color: #e4e4e7;
 }
