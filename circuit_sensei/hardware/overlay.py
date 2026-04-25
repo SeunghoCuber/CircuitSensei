@@ -22,6 +22,8 @@ class AnnotationStyle:
     point_radius: int = 20
     point_inner_radius: int = 6
     arrow_thickness: int = 5
+    carry_wire_thickness: int = 4
+    point_outline_thickness: int = 4
     node_line_thickness: int = 7
     label_padding: int = 7
     label_font_scale: float = 0.58
@@ -39,6 +41,8 @@ class AnnotationStyle:
             point_radius=int(raw.get("point_radius", 20)),
             point_inner_radius=int(raw.get("point_inner_radius", 6)),
             arrow_thickness=int(raw.get("arrow_thickness", 5)),
+            carry_wire_thickness=int(raw.get("carry_wire_thickness", 4)),
+            point_outline_thickness=int(raw.get("point_outline_thickness", 4)),
             node_line_thickness=int(raw.get("node_line_thickness", 7)),
             label_padding=int(raw.get("label_padding", 7)),
             label_font_scale=float(raw.get("label_font_scale", 0.58)),
@@ -58,6 +62,7 @@ class BreadboardGeometry:
     rows: tuple[str, ...] = DEFAULT_ROWS
     columns: int = 63
     orientation: str = "standard"
+    row_x_positions: tuple[int, ...] = ()
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "BreadboardGeometry":
@@ -69,12 +74,14 @@ class BreadboardGeometry:
         rows = tuple(str(row).upper() for row in breadboard.get("rows", list(DEFAULT_ROWS)))
         columns = int(breadboard.get("columns", 63))
         orientation = str(breadboard.get("orientation", "standard")).lower().strip()
+        row_x_positions = tuple(int(x) for x in breadboard.get("row_x_positions", []))
         return cls(
             top_left=top_left,
             bottom_right=bottom_right,
             rows=rows,
             columns=columns,
             orientation=orientation,
+            row_x_positions=row_x_positions,
         )
 
     def hole_to_pixel(self, row: str, col: int) -> tuple[int, int]:
@@ -95,9 +102,14 @@ class BreadboardGeometry:
             y = round(y0 + self.rows.index(row) * y_step)
             return x, y
 
-        x_step = 0 if len(self.rows) == 1 else (x1 - x0) / (len(self.rows) - 1)
+        # Use exact per-row x positions when provided (handles centre-gap between banks)
+        if self.row_x_positions and len(self.row_x_positions) == len(self.rows):
+            x = self.row_x_positions[self.rows.index(row)]
+        else:
+            x_step = 0 if len(self.rows) == 1 else (x1 - x0) / (len(self.rows) - 1)
+            x = round(x0 + self.rows.index(row) * x_step)
+
         y_step = 0 if self.columns == 1 else (y1 - y0) / (self.columns - 1)
-        x = round(x0 + self.rows.index(row) * x_step)
         y = round(y0 + (col - 1) * y_step)
         return x, y
 
@@ -291,14 +303,36 @@ class FrameAnnotator:
 
         points = self._annotation_points(annotations)
         arrows = self._annotation_arrows(annotations)
+        carryover_wires = self._annotation_carryover_wires(annotations)
         occupied_labels: list[tuple[int, int, int, int]] = []
 
-        self._draw_node_spans_cv2(cv2, image, points)
+        for wire in carryover_wires:
+            start = self._point(wire["from"])
+            end = self._point(wire["to"])
+            self._draw_wire_cv2(
+                cv2,
+                image,
+                start,
+                end,
+                color=(196, 164, 112),
+                thickness=self.style.carry_wire_thickness,
+                draw_arrow=False,
+                shorten_inset=max(2, self.style.point_radius // 3),
+            )
 
         for arrow in arrows:
             start = self._point(arrow["from"])
             end = self._point(arrow["to"])
-            self._draw_arrow_cv2(cv2, image, start, end)
+            self._draw_wire_cv2(
+                cv2,
+                image,
+                start,
+                end,
+                color=(126, 206, 78),
+                thickness=self.style.arrow_thickness,
+                draw_arrow=True,
+                shorten_inset=self.style.point_radius + 5,
+            )
             label = str(arrow.get("label", "")).strip()
             if label:
                 mid = ((start[0] + end[0]) // 2, (start[1] + end[1]) // 2)
@@ -309,7 +343,7 @@ class FrameAnnotator:
                     label,
                     occupied_labels,
                     font_scale=self.style.arrow_label_font_scale,
-                    accent=(60, 150, 75),
+                    accent=(126, 206, 78),
                 )
 
         for point in points:
@@ -328,6 +362,7 @@ class FrameAnnotator:
             "backend": "opencv",
             "points": len(points),
             "arrows": len(arrows),
+            "carryover_wires": len(carryover_wires),
             "warnings": warnings,
         }
 
@@ -344,21 +379,34 @@ class FrameAnnotator:
         draw = ImageDraw.Draw(image)
         points = self._annotation_points(annotations)
         arrows = self._annotation_arrows(annotations)
+        carryover_wires = self._annotation_carryover_wires(annotations)
         occupied_labels: list[tuple[int, int, int, int]] = []
 
-        for point in points:
-            hole = self._hole_location(point)
-            if hole is None:
-                continue
-            start, end = self.geometry.node_span_pixels(hole[0], hole[1])
-            draw.line((*start, *end), fill=(255, 222, 110), width=self.style.node_line_thickness)
+        for wire in carryover_wires:
+            start = self._point(wire["from"])
+            end = self._point(wire["to"])
+            self._draw_wire_pillow(
+                draw,
+                start,
+                end,
+                color=(112, 164, 196),
+                thickness=self.style.carry_wire_thickness,
+                draw_arrow=False,
+                shorten_inset=max(2, self.style.point_radius // 3),
+            )
 
         for arrow in arrows:
             start = self._point(arrow["from"])
             end = self._point(arrow["to"])
-            shortened = self._shortened_line(start, end, self.style.point_radius + 4)
-            draw.line((*shortened[0], *shortened[1]), fill=(60, 150, 75), width=self.style.arrow_thickness)
-            self._draw_arrow_head(draw, shortened[0], shortened[1], (60, 150, 75))
+            self._draw_wire_pillow(
+                draw,
+                start,
+                end,
+                color=(78, 206, 126),
+                thickness=self.style.arrow_thickness,
+                draw_arrow=True,
+                shorten_inset=self.style.point_radius + 4,
+            )
             label = str(arrow.get("label", "")).strip()
             if label:
                 mid = ((start[0] + end[0]) // 2, (start[1] + end[1]) // 2)
@@ -366,10 +414,11 @@ class FrameAnnotator:
 
         for point in points:
             x, y = self._point(point)
-            radius = self.style.point_radius
-            inner = self.style.point_inner_radius
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline=(255, 170, 0), width=4)
-            draw.ellipse((x - inner, y - inner, x + inner, y + inner), fill=(230, 35, 35))
+            r = self.style.point_radius
+            # Drop shadow
+            draw.ellipse((x - r + 2, y - r + 2, x + r + 2, y + r + 2), fill=(20, 20, 20))
+            # Emerald filled dot
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=(16, 185, 129), outline=(56, 189, 248), width=2)
 
         for point in points:
             x, y = self._point(point)
@@ -383,6 +432,7 @@ class FrameAnnotator:
             "backend": "pillow",
             "points": len(points),
             "arrows": len(arrows),
+            "carryover_wires": len(carryover_wires),
             "warnings": warnings,
         }
 
@@ -397,6 +447,15 @@ class FrameAnnotator:
             if isinstance(arrow, dict) and isinstance(arrow.get("from"), dict) and isinstance(arrow.get("to"), dict):
                 arrows.append(arrow)
         return arrows
+
+    @staticmethod
+    def _annotation_carryover_wires(annotations: dict[str, Any]) -> list[dict[str, Any]]:
+        wires: list[dict[str, Any]] = []
+        for key in ("carryover_wires", "persistent_wires"):
+            for wire in annotations.get(key, []):
+                if isinstance(wire, dict) and isinstance(wire.get("from"), dict) and isinstance(wire.get("to"), dict):
+                    wires.append(wire)
+        return wires
 
     @staticmethod
     def _banner_text(annotations: dict[str, Any]) -> str:
@@ -455,41 +514,54 @@ class FrameAnnotator:
 
         return label or "target"
 
-    def _draw_arrow_cv2(self, cv2: Any, image: Any, start: tuple[int, int], end: tuple[int, int]) -> None:
-        line_start, line_end = self._shortened_line(start, end, self.style.point_radius + 5)
+    def _draw_wire_cv2(
+        self,
+        cv2: Any,
+        image: Any,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        color: tuple[int, int, int],
+        thickness: int,
+        draw_arrow: bool,
+        shorten_inset: int,
+    ) -> None:
+        line_start, line_end = self._shortened_line(start, end, shorten_inset)
         shadow_start = (line_start[0] + 2, line_start[1] + 2)
         shadow_end = (line_end[0] + 2, line_end[1] + 2)
-        cv2.arrowedLine(
-            image,
-            shadow_start,
-            shadow_end,
-            (30, 30, 30),
-            self.style.arrow_thickness + 2,
-            cv2.LINE_AA,
-            tipLength=0.08,
-        )
-        cv2.arrowedLine(
-            image,
-            line_start,
-            line_end,
-            (60, 150, 75),
-            self.style.arrow_thickness,
-            cv2.LINE_AA,
-            tipLength=0.08,
-        )
+        shadow_thickness = max(2, thickness + 2)
+        if draw_arrow:
+            cv2.arrowedLine(
+                image,
+                shadow_start,
+                shadow_end,
+                (34, 34, 34),
+                shadow_thickness,
+                cv2.LINE_AA,
+                tipLength=0.08,
+            )
+            cv2.arrowedLine(
+                image,
+                line_start,
+                line_end,
+                color,
+                thickness,
+                cv2.LINE_AA,
+                tipLength=0.08,
+            )
+            return
+
+        cv2.line(image, shadow_start, shadow_end, (34, 34, 34), shadow_thickness, cv2.LINE_AA)
+        cv2.line(image, line_start, line_end, color, thickness, cv2.LINE_AA)
 
     def _draw_target_hole_cv2(self, cv2: Any, image: Any, center: tuple[int, int]) -> None:
         x, y = center
-        radius = self.style.point_radius
-        inner = self.style.point_inner_radius
-        cv2.circle(image, (x + 2, y + 2), radius + 2, (35, 35, 35), 4, cv2.LINE_AA)
-        cv2.circle(image, center, radius + 3, (255, 255, 255), 3, cv2.LINE_AA)
-        cv2.circle(image, center, radius, (0, 170, 255), 4, cv2.LINE_AA)
-        cv2.circle(image, center, inner, (35, 35, 230), -1, cv2.LINE_AA)
-        cv2.line(image, (x - radius - 6, y), (x - radius + 2, y), (35, 35, 230), 2, cv2.LINE_AA)
-        cv2.line(image, (x + radius - 2, y), (x + radius + 6, y), (35, 35, 230), 2, cv2.LINE_AA)
-        cv2.line(image, (x, y - radius - 6), (x, y - radius + 2), (35, 35, 230), 2, cv2.LINE_AA)
-        cv2.line(image, (x, y + radius - 2), (x, y + radius + 6), (35, 35, 230), 2, cv2.LINE_AA)
+        r = self.style.point_radius
+        # Drop shadow
+        cv2.circle(image, (x + 2, y + 2), r, (20, 20, 20), -1, cv2.LINE_AA)
+        # Emerald filled dot
+        cv2.circle(image, center, r, (129, 185, 16), -1, cv2.LINE_AA)
+        # Thin cyan border
+        cv2.circle(image, center, r, (248, 189, 56), 2, cv2.LINE_AA)
 
     def _draw_label_cv2(
         self,
@@ -499,7 +571,7 @@ class FrameAnnotator:
         text: str,
         occupied: list[tuple[int, int, int, int]],
         font_scale: float | None = None,
-        accent: tuple[int, int, int] = (0, 170, 255),
+        accent: tuple[int, int, int] = (129, 185, 16),
     ) -> None:
         font = cv2.FONT_HERSHEY_SIMPLEX
         scale = self.style.label_font_scale if font_scale is None else font_scale
@@ -514,11 +586,11 @@ class FrameAnnotator:
         x0, y0, x1, y1 = rect
         occupied.append(rect)
 
-        cv2.line(image, anchor, self._nearest_rect_point(anchor, rect), (45, 45, 45), 2, cv2.LINE_AA)
-        cv2.rectangle(image, (x0 + 2, y0 + 2), (x1 + 2, y1 + 2), (35, 35, 35), -1)
-        cv2.rectangle(image, (x0, y0), (x1, y1), (255, 255, 255), -1)
+        cv2.line(image, anchor, self._nearest_rect_point(anchor, rect), (68, 73, 80), 2, cv2.LINE_AA)
+        cv2.rectangle(image, (x0 + 2, y0 + 2), (x1 + 2, y1 + 2), (22, 22, 22), -1)
+        cv2.rectangle(image, (x0, y0), (x1, y1), (35, 39, 44), -1)
         cv2.rectangle(image, (x0, y0), (x1, y1), accent, 2)
-        cv2.putText(image, label, (x0 + pad, y1 - pad - baseline), font, scale, (20, 20, 20), thickness, cv2.LINE_AA)
+        cv2.putText(image, label, (x0 + pad, y1 - pad - baseline), font, scale, (236, 239, 243), thickness, cv2.LINE_AA)
 
     def _draw_banner_cv2(self, cv2: Any, image: Any, text: str) -> None:
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -532,13 +604,13 @@ class FrameAnnotator:
         else:
             y0 = max(18, image.shape[0] - banner_height - 18)
         y1 = y0 + banner_height
-        cv2.rectangle(image, (22 + 3, y0 + 3), (image.shape[1] - 22 + 3, y1 + 3), (45, 45, 45), -1)
-        cv2.rectangle(image, (22, y0), (image.shape[1] - 22, y1), (255, 255, 255), -1)
-        cv2.rectangle(image, (22, y0), (image.shape[1] - 22, y1), (70, 70, 70), 2)
-        cv2.rectangle(image, (22, y0), (34, y1), (0, 170, 255), -1)
+        cv2.rectangle(image, (25, y0 + 3), (image.shape[1] - 19, y1 + 3), (20, 20, 20), -1)
+        cv2.rectangle(image, (22, y0), (image.shape[1] - 22, y1), (28, 33, 38), -1)
+        cv2.rectangle(image, (22, y0), (image.shape[1] - 22, y1), (88, 96, 106), 2)
+        cv2.rectangle(image, (22, y0), (34, y1), (129, 185, 16), -1)
         y = y0 + 28
         for line in lines:
-            cv2.putText(image, line, (48, y), font, self.style.banner_font_scale, (20, 20, 20), thickness, cv2.LINE_AA)
+            cv2.putText(image, line, (48, y), font, self.style.banner_font_scale, (236, 239, 243), thickness, cv2.LINE_AA)
             y += line_height
 
     def _draw_label_pillow(
@@ -561,10 +633,10 @@ class FrameAnnotator:
         rect = self._label_rect(anchor, width, height, image_size[0], image_size[1], occupied)
         x0, y0, x1, y1 = rect
         occupied.append(rect)
-        draw.line((*anchor, *self._nearest_rect_point(anchor, rect)), fill=(45, 45, 45), width=2)
-        draw.rectangle((x0 + 2, y0 + 2, x1 + 2, y1 + 2), fill=(35, 35, 35))
-        draw.rectangle(rect, fill=(255, 255, 255), outline=(255, 170, 0), width=2)
-        draw.text((x0 + self.style.label_padding, y0 + self.style.label_padding), label, fill=(20, 20, 20))
+        draw.line((*anchor, *self._nearest_rect_point(anchor, rect)), fill=(68, 73, 80), width=2)
+        draw.rectangle((x0 + 2, y0 + 2, x1 + 2, y1 + 2), fill=(22, 22, 22))
+        draw.rectangle(rect, fill=(35, 39, 44), outline=(16, 185, 129), width=2)
+        draw.text((x0 + self.style.label_padding, y0 + self.style.label_padding), label, fill=(236, 239, 243))
 
     def _draw_banner_pillow(self, draw: Any, image_size: tuple[int, int], text: str) -> None:
         width, height = image_size
@@ -573,13 +645,29 @@ class FrameAnnotator:
         banner_height = 24 + line_height * len(lines)
         y0 = 18 if self.style.banner_position.lower() == "top" else max(18, height - banner_height - 18)
         y1 = y0 + banner_height
-        draw.rectangle((25, y0 + 3, width - 19, y1 + 3), fill=(45, 45, 45))
-        draw.rectangle((22, y0, width - 22, y1), fill=(255, 255, 255), outline=(70, 70, 70), width=2)
-        draw.rectangle((22, y0, 34, y1), fill=(255, 170, 0))
+        draw.rectangle((25, y0 + 3, width - 19, y1 + 3), fill=(20, 20, 20))
+        draw.rectangle((22, y0, width - 22, y1), fill=(28, 33, 38), outline=(88, 96, 106), width=2)
+        draw.rectangle((22, y0, 34, y1), fill=(16, 185, 129))
         y = y0 + 12
         for line in lines:
-            draw.text((48, y), line, fill=(20, 20, 20))
+            draw.text((48, y), line, fill=(236, 239, 243))
             y += line_height
+
+    def _draw_wire_pillow(
+        self,
+        draw: Any,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        color: tuple[int, int, int],
+        thickness: int,
+        draw_arrow: bool,
+        shorten_inset: int,
+    ) -> None:
+        shortened = self._shortened_line(start, end, shorten_inset)
+        draw.line((*shortened[0], *shortened[1]), fill=(34, 34, 34), width=max(2, thickness + 2))
+        draw.line((*shortened[0], *shortened[1]), fill=color, width=thickness)
+        if draw_arrow:
+            self._draw_arrow_head(draw, shortened[0], shortened[1], color)
 
     def _label_rect(
         self,

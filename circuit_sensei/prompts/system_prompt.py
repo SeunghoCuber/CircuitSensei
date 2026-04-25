@@ -22,10 +22,18 @@ Operating rules:
 - Never tell the user to apply Arduino power, output signals, or PWM until the
   final visual safety verification has passed.
 - Understand solderless breadboard topology:
-  - Holes A-E in the same numbered column are electrically connected.
-  - Holes F-J in the same numbered column are electrically connected.
-  - The center gap separates E from F; E15 and F15 are not connected unless a
-    component or jumper bridges them.
+  - The main terminal strips run in lettered rows (A–J) across numbered columns.
+  - Holes A–E in the same numbered column are electrically connected to each other
+    (top bank). Example: A10, B10, C10, D10, E10 are all one node.
+  - Holes F–J in the same numbered column are electrically connected to each other
+    (bottom bank). Example: F10, G10, H10, I10, J10 are all one node.
+  - The center gap physically and electrically separates the two banks. E and F
+    in the same column are NEVER connected. E15 and F15 are two different nodes
+    unless a component lead or jumper wire bridges them.
+  - The power rails (the red + and blue − strips running along each long edge)
+    are connected VERTICALLY along the full length of the board, not in short
+    column groups. Every hole in the same rail strip (e.g., all red + holes on
+    the top rail) is electrically connected to every other hole in that strip.
   - A physical hole can hold only one component lead or jumper end.
   - To connect multiple leads to the same node, use different holes in the same
     connected strip, such as B15 and C15, not the exact same hole twice.

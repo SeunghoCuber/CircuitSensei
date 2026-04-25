@@ -116,6 +116,38 @@ PLAN_BLOCK_RE = re.compile(r"%%PLAN_JSON%%\s*(\[.*?\])\s*%%ENDPLAN_JSON%%", re.D
 COMPONENTS_BLOCK_RE = re.compile(r"%%COMPONENTS_JSON%%\s*(\[.*?\])\s*%%ENDCOMPONENTS_JSON%%", re.DOTALL)
 HOLE_REF_RE = re.compile(r"\b([A-Ja-j])\s*([1-9][0-9]?)\b")
 COLUMN_REF_RE = re.compile(r"\bcol(?:umn)?s?\.?\s*([1-9][0-9]?)\b", re.IGNORECASE)
+ARDUINO_PIN_RE = re.compile(r"\b(?:a|d)(?:0|[1-9][0-3]?)\b", re.IGNORECASE)
+
+WIRE_HINT_TOKENS = (
+    "wire",
+    "jumper",
+    "lead",
+    "connect",
+    "connection",
+    "gnd",
+    "ground",
+    "5v",
+    "3v3",
+    "vcc",
+    "vin",
+    "rail",
+    "signal",
+    "to arduino",
+)
+
+COMPONENT_HINT_TOKENS = (
+    "resistor",
+    "led",
+    "diode",
+    "capacitor",
+    "transistor",
+    "sensor",
+    "button",
+    "potentiometer",
+    "ic",
+    "chip",
+    "module",
+)
 
 
 DETERMINISTIC_FALLBACKS: dict[SessionState, SessionState] = {
@@ -831,7 +863,7 @@ class CircuitSenseiAgent:
         annotations = dict(step.get("annotations", {})) if isinstance(step.get("annotations"), dict) else {}
         if self._has_renderable_annotations(annotations):
             annotations.setdefault("message", step.get("instruction", ""))
-            return annotations
+            return self._attach_carryover_wires(annotations)
 
         source = " ".join(
             str(value)
@@ -887,7 +919,129 @@ class CircuitSenseiAgent:
                     ]
 
         annotations.setdefault("message", str(step.get("instruction", "")).strip())
+        return self._attach_carryover_wires(annotations)
+
+    def _attach_carryover_wires(self, annotations: dict[str, Any]) -> dict[str, Any]:
+        carryover_wires = self._previous_wire_segments()
+        if carryover_wires:
+            annotations["carryover_wires"] = carryover_wires
         return annotations
+
+    def _previous_wire_segments(self) -> list[dict[str, Any]]:
+        if not self.session.placement_plan or self.session.current_step <= 0:
+            return []
+
+        carryover: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        prior_steps = self.session.placement_plan[: min(self.session.current_step, len(self.session.placement_plan))]
+        for step in prior_steps:
+            for wire in self._wire_segments_from_step(step):
+                signature = self._wire_signature(wire)
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                carryover.append({"from": wire["from"], "to": wire["to"]})
+        return carryover
+
+    def _wire_segments_from_step(self, step: dict[str, Any]) -> list[dict[str, Any]]:
+        annotations = step.get("annotations", {})
+        if not isinstance(annotations, dict):
+            return []
+
+        context = " ".join(
+            str(value)
+            for value in (
+                step.get("title", ""),
+                step.get("instruction", ""),
+                step.get("verification", ""),
+                annotations.get("message", ""),
+            )
+            if value
+        )
+
+        wires: list[dict[str, Any]] = []
+        for wire in annotations.get("wires", []):
+            normalized = self._normalize_wire_segment(wire)
+            if normalized:
+                wires.append(normalized)
+
+        for arrow in annotations.get("arrows", []):
+            normalized = self._normalize_wire_segment(arrow)
+            if not normalized:
+                continue
+            if self._is_wire_like_annotation(normalized, context):
+                wires.append(normalized)
+
+        if wires:
+            return wires
+
+        if not self._looks_like_wiring_text(context):
+            return []
+
+        points: list[dict[str, Any]] = []
+        for point in annotations.get("points", []):
+            if isinstance(point, dict) and self._is_renderable_location(point):
+                points.append(self._location_payload(point))
+
+        if len(points) < 2:
+            return []
+
+        # Pair sequential points to infer explicit wire segments when the step text is wiring-focused.
+        derived: list[dict[str, Any]] = []
+        for index in range(0, len(points) - 1, 2):
+            derived.append({"from": points[index], "to": points[index + 1]})
+        return derived
+
+    @staticmethod
+    def _normalize_wire_segment(candidate: Any) -> dict[str, Any] | None:
+        if not isinstance(candidate, dict):
+            return None
+        start = candidate.get("from")
+        end = candidate.get("to")
+        if not isinstance(start, dict) or not isinstance(end, dict):
+            return None
+        if not CircuitSenseiAgent._is_renderable_location(start) or not CircuitSenseiAgent._is_renderable_location(end):
+            return None
+
+        normalized = {
+            "from": CircuitSenseiAgent._location_payload(start),
+            "to": CircuitSenseiAgent._location_payload(end),
+        }
+        label = str(candidate.get("label", "")).strip()
+        if label:
+            normalized["label"] = label
+        return normalized
+
+    @staticmethod
+    def _is_wire_like_annotation(annotation: dict[str, Any], context: str) -> bool:
+        label = str(annotation.get("label", "")).lower().strip()
+        if CircuitSenseiAgent._looks_like_wiring_text(label):
+            return True
+        if not CircuitSenseiAgent._looks_like_wiring_text(context):
+            return False
+        if CircuitSenseiAgent._looks_like_component_text(label):
+            return False
+        return True
+
+    @staticmethod
+    def _looks_like_wiring_text(text: str) -> bool:
+        lowered = text.lower()
+        if any(token in lowered for token in WIRE_HINT_TOKENS):
+            return True
+        return bool(ARDUINO_PIN_RE.search(lowered))
+
+    @staticmethod
+    def _looks_like_component_text(text: str) -> bool:
+        lowered = text.lower()
+        if any(token in lowered for token in COMPONENT_HINT_TOKENS):
+            return True
+        return bool(re.search(r"\br\d+\b", lowered))
+
+    @staticmethod
+    def _wire_signature(annotation: dict[str, Any]) -> str:
+        start = json.dumps(annotation.get("from", {}), sort_keys=True)
+        end = json.dumps(annotation.get("to", {}), sort_keys=True)
+        return "|".join(sorted((start, end)))
 
     @staticmethod
     def _has_renderable_annotations(annotations: dict[str, Any]) -> bool:

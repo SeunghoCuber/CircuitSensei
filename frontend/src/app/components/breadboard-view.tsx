@@ -126,12 +126,12 @@ export function BreadboardView({ connected, components }: BreadboardViewProps) {
         </div>
       </div>
 
-      {/* Annotated breadboard image — relative+absolute so percentage sizing resolves correctly */}
+      {/* Annotated breadboard image */}
       <div className="flex-1 min-h-0 relative">
         <img
           src={displaySrc}
           alt="Breadboard layout"
-          className="absolute inset-0 w-full h-full object-contain rounded-lg"
+          className="absolute inset-0 w-full h-full object-contain rounded"
         />
       </div>
     </Card>

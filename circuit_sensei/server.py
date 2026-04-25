@@ -136,6 +136,8 @@ async def get_reference_image() -> Response:
 @app.get("/api/annotated-image")
 async def get_annotated_image() -> Response:
     """Serve the latest annotated breadboard guidance image."""
+    if not session.placement_plan:
+        return Response(status_code=404)
     resp = _read_image(ANNOTATED_PATH)
     if resp:
         return resp

@@ -1,17 +1,28 @@
 # Circuit-Sensei
 
 Circuit-Sensei is a working prototype of an agentic breadboard assistant for
-electronics engineers. It takes a circuit goal and component inventory, creates
-a breadboard placement plan, draws guidance directly on a top-down webcam frame,
-uses Gemini Vision to verify each step, and then uses an Arduino over USB serial
-to stimulate and measure the finished circuit.
+electronics engineers. The app now runs as a React frontend backed by a FastAPI
+server that hosts the agent loop. It takes a circuit goal and component
+inventory, creates a breadboard placement plan, draws visual guidance, verifies
+each step with Gemini Vision, and then uses an Arduino over USB serial to
+stimulate and measure the finished circuit.
 
-The first version is mock-first: it runs end-to-end without a webcam, Gemini API
-key, or Arduino. Real hardware mode uses the same agent loop and tools.
+The frontend provides the live workbench UI: camera preview, annotated
+breadboard image, step list, agent chat, and voice controls. Speech-to-text and
+text-to-speech are proxied through the backend using the ElevenLabs API.
+
+The project is still mock-friendly: it can run end-to-end without a webcam,
+Gemini API key, ElevenLabs API key, or Arduino by starting the backend with
+`MOCK_MODE=true`. Real hardware mode uses the same backend, frontend, agent
+loop, and tools.
 
 ## What It Does
 
 - Accepts a natural-language circuit goal and available component inventory.
+- Accepts typed chat or microphone input from the frontend.
+- Streams agent messages and session state to the UI over a WebSocket.
+- Uses ElevenLabs STT to transcribe microphone recordings.
+- Uses ElevenLabs TTS to speak agent responses.
 - Plans concise breadboard steps using row/column locations such as `A10`.
 - Captures a webcam frame to `/tmp/sensei_frame.jpg`.
 - Draws highlighted holes, arrows, labels, and step messages onto
@@ -30,6 +41,7 @@ All guidance is visual on-screen annotation over the camera image.
 CircuitSensei/
 ├── circuit_sensei/
 │   ├── main.py
+│   ├── server.py
 │   ├── agent.py
 │   ├── tools.py
 │   ├── hardware/
@@ -40,10 +52,16 @@ CircuitSensei/
 │   │   └── system_prompt.py
 │   └── arduino/
 │       └── circuit_tester.ino
+├── frontend/
+│   ├── src/
+│   ├── public/
+│   ├── package.json
+│   └── vite.config.ts
 ├── config.yaml
 ├── requirements.txt
 ├── README.md
 └── tests/
+    ├── test_arduino_tester.py
     ├── test_state_machine.py
     ├── test_tools_mock.py
     └── mock_frame.jpg
@@ -51,7 +69,7 @@ CircuitSensei/
 
 ## Setup
 
-Use Python 3.11 or newer.
+Use Python 3.11 or newer and Node.js 18 or newer.
 
 ```bash
 python3.11 -m venv .venv
@@ -59,13 +77,70 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-For real Gemini mode, set:
+Install the frontend dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+For real Gemini mode, set `GEMINI_API_KEY`. For voice input/output, set
+`ELEVENLABS_API_KEY`:
 
 ```bash
 export GEMINI_API_KEY="your-key"
+export ELEVENLABS_API_KEY="your-key"
 ```
 
-## Run In Mock Mode
+`ELEVENLABS_API_KEY` is optional. Without it, typed chat still works; the backend
+returns no audio for TTS and an empty transcript for STT. The ElevenLabs voice
+and model IDs live in `config.yaml` under `elevenlabs`.
+
+## Run The Web App
+
+Start the backend API server in one terminal:
+
+```bash
+source .venv/bin/activate
+MOCK_MODE=true uvicorn circuit_sensei.server:app --reload --port 8000
+```
+
+Start the frontend dev server in a second terminal:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:5173`. Vite proxies frontend `/api` and `/ws` requests to
+the FastAPI backend on `http://localhost:8000`, so the browser talks to the
+agent through the same host and port as the frontend.
+
+In the web UI:
+
+- Type a goal and inventory in Agent Chat, for example
+  `Goal: blink an LED from an Arduino pin. Inventory: Arduino Uno, LED, 330 ohm resistor, jumper wires`.
+- Type `next`, `continue`, or `/next` to advance or retry the current state.
+- Type `confirm`, `looks good`, or `/confirm` to manually accept the current
+  placement when you have checked it yourself.
+- Hold the Speak button to record audio. The backend sends the recording to
+  ElevenLabs STT, then forwards the transcript to the agent.
+- Agent responses are sent to ElevenLabs TTS and played in the browser when
+  `ELEVENLABS_API_KEY` is set.
+
+While Circuit-Sensei is waiting in `VERIFY`, normal typed text is treated as a
+question or note to Gemini and does not advance the step. Use `next` or `/next`
+to retry vision verification, or `confirm` or `/confirm` to manually advance
+after checking the placement yourself.
+
+After all build steps are verified, `next` moves into a host-controlled Arduino
+test. Gemini is no longer allowed to create new breadboard placement steps at
+that point, which prevents the workflow from restarting the build plan after the
+circuit is already assembled.
+
+## Optional CLI
+
+The original command-line interface is still available for agent-only testing:
 
 ```bash
 python -m circuit_sensei.main --mock
@@ -81,23 +156,13 @@ python -m circuit_sensei.main \
   --auto-demo
 ```
 
-During an interactive run:
+During a CLI run:
 
 - `/next` advances the state machine.
 - `/confirm` manually accepts the current verification step when the webcam or
   Gemini cannot see enough detail but you personally checked the placement.
 - `/state` prints the current session state.
 - `/quit` exits.
-
-While Circuit-Sensei is waiting in `VERIFY`, normal typed text is treated as a
-question or note to Gemini and does not advance the step. Use `/next` to retry
-vision verification, or `/confirm` to manually advance after checking the
-placement yourself.
-
-After all build steps are verified, `/next` moves into a host-controlled Arduino
-test. Gemini is no longer allowed to create new breadboard placement steps at
-that point, which prevents the workflow from restarting the build plan after the
-circuit is already assembled.
 
 ## Real Hardware Mode
 
@@ -111,11 +176,16 @@ hardware:
   baud_rate: 115200
 ```
 
-Then run:
+Then start the backend without mock mode:
 
 ```bash
-python -m circuit_sensei.main --real
+source .venv/bin/activate
+export GEMINI_API_KEY="your-key"
+export ELEVENLABS_API_KEY="your-key"
+MOCK_MODE=false uvicorn circuit_sensei.server:app --reload --port 8000
 ```
+
+Start the frontend with `npm run dev` from `frontend/` as usual.
 
 If `GEMINI_API_KEY` is missing in real mode, the app exits clearly before doing
 anything else.
@@ -124,7 +194,8 @@ anything else.
 
 Mount the webcam above the breadboard with a stable top-down view. Keep the
 board edges visible and avoid steep perspective angles. The prototype assumes a
-single standard breadboard area and maps rows `A-J` and columns `1-63`.
+single standard breadboard area and maps rows `A-J` across the configured
+column range. The current `config.yaml` maps columns `1-30`.
 
 The app writes:
 
@@ -168,17 +239,20 @@ Manual calibration lives in `config.yaml`:
 
 ```yaml
 breadboard:
-  image_size: [1280, 720]
-  top_left: [110, 95]
-  bottom_right: [1170, 615]
+  image_size: [2162, 1484]
+  orientation: standard
+  top_left: [1425, 82]
+  bottom_right: [1920, 1379]
+  row_x_positions: [1425, 1470, 1515, 1560, 1605, 1750, 1790, 1830, 1875, 1920]
   rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
-  columns: 63
+  columns: 30
 ```
 
 `top_left` and `bottom_right` are pixel coordinates for the usable breadboard
-hole grid in the camera image. Circuit-Sensei linearly interpolates approximate
-hole positions from those two points. This is intentionally hackathon-friendly,
-not a full computer-vision calibration system.
+hole grid in the camera or reference image. `row_x_positions` can override the
+linear row spacing, which is useful for accounting for the center gap between
+the `E` and `F` banks. This is intentionally hackathon-friendly, not a full
+computer-vision calibration system.
 
 ## Breadboard Topology Rules
 
@@ -246,34 +320,42 @@ starts its response with:
 ⚠️ DISCONNECT POWER NOW
 ```
 
-## Example Transcript
+## Example Web Flow
 
 ```text
-$ python -m circuit_sensei.main --mock
-You: Goal: blink an LED from an Arduino pin
-Inventory: Arduino Uno, LED, 330 ohm resistor, jumper wires
+Open http://localhost:5173
+
+You: Goal: blink an LED from an Arduino pin. Inventory: Arduino Uno, LED, 330 ohm resistor, jumper wires.
 Circuit-Sensei: Tell me the circuit goal and available components.
 
-You: /next
+You: next
 Circuit-Sensei: Great. I have the goal and inventory. I will derive a compact breadboard plan next.
 
-You: /next
+You: next
 Circuit-Sensei: For an LED on 5 V, R = (5 V - about 2 V) / 5-10 mA...
 Placement plan:
 1. With power disconnected, place the current-limit resistor from A10 to A20.
 2. Place the LED anode at E20 and cathode at E25.
 3. With Arduino outputs still inactive, connect D9 to column 10 and GND to column 25.
 
-You: /next
+You: next
 Circuit-Sensei: With power disconnected, place the current-limit resistor from A10 to A20.
 ```
 
-The annotated image for that step is saved to `/tmp/sensei_annotated.jpg`.
+The annotated image for that step is saved to `/tmp/sensei_annotated.jpg` and
+served to the frontend through `/api/annotated-image`.
 
 ## Tests
 
 ```bash
 pytest
+```
+
+Build the frontend before sharing a UI change:
+
+```bash
+cd frontend
+npm run build
 ```
 
 The tests exercise the state parser, emergency safety response, mock frame

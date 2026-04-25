@@ -30,16 +30,17 @@ overlay:
   # "reference" draws guidance on a clean breadboard diagram.
   # Use "camera" to draw guidance directly on the latest webcam frame.
   annotation_source: reference
-  reference_image_path: ""
-  point_radius: 20
-  point_inner_radius: 6
-  arrow_thickness: 5
-  node_line_thickness: 7
-  label_padding: 7
-  label_font_scale: 0.58
-  arrow_label_font_scale: 0.56
-  banner_font_scale: 0.72
-  banner_position: top
+  reference_image_path: "frontend/public/breadboard-default.jpg"
+  point_radius: 30
+  point_inner_radius: 10
+  arrow_thickness: 8
+  carry_wire_thickness: 6
+  node_line_thickness: 10
+  label_padding: 12
+  label_font_scale: 0.85
+  arrow_label_font_scale: 0.80
+  banner_font_scale: 1.05
+  banner_position: bottom
   banner_max_lines: 3
 
 elevenlabs:
@@ -53,11 +54,13 @@ paths:
   annotated_path: /tmp/sensei_annotated.jpg
 
 breadboard:
-  image_size: [1280, 720]
-  # Standard orientation: row letters A-J run left-to-right, numbered columns
-  # run top-to-bottom on the generated reference breadboard diagram.
+  image_size: [2162, 1484]
+  # Standard orientation: row letters A-J run left-to-right (x-axis),
+  # numbered columns run top-to-bottom (y-axis).
   orientation: standard
-  top_left: [650, 140]       # A1
-  bottom_right: [1095, 650]  # J30
+  top_left: [1425, 82]        # A1
+  bottom_right: [1920, 1379]  # J30
+  # Exact per-row x positions to handle the center gap between banks E and F.
+  row_x_positions: [1425, 1470, 1515, 1560, 1605, 1750, 1790, 1830, 1875, 1920]
   rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
   columns: 30
