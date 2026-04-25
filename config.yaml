@@ -1,0 +1,23 @@
+gemini:
+  model: gemini-2.5-flash
+  vision_model: gemini-2.5-flash
+  max_tool_rounds: 6
+  retries: 3
+
+hardware:
+  mock_mode: false
+  camera_index: 0
+  serial_port: /dev/cu.usbmodem21301
+  baud_rate: 115200
+  serial_timeout_seconds: 2.0
+
+paths:
+  frame_path: /tmp/sensei_frame.jpg
+  annotated_path: /tmp/sensei_annotated.jpg
+
+breadboard:
+  image_size: [1280, 720]
+  top_left: [110, 95]
+  bottom_right: [1170, 615]
+  rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+  columns: 63
