@@ -20,6 +20,7 @@ class ArduinoTester:
     baud_rate: int = 115200
     timeout_seconds: float = 2.0
     mock_mode: bool = True
+    command_attempts: int = 2
     _serial: Any = None
 
     @property
@@ -63,15 +64,16 @@ class ArduinoTester:
         if self._serial is None:
             raise ArduinoUnavailableError(f"Arduino is not connected. Expected serial port: {self.port}")
 
-        line = json.dumps(payload, separators=(",", ":")) + "\n"
-        self._serial.write(line.encode("utf-8"))
-        raw = self._serial.readline().decode("utf-8", errors="replace").strip()
-        if not raw:
-            raise TimeoutError(f"No Arduino response for command {command!r}.")
-        try:
-            return self._normalize_response(command, json.loads(raw))
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Arduino returned non-JSON response: {raw}") from exc
+        attempts = max(1, self.command_attempts)
+        response: dict[str, Any] | None = None
+        for attempt in range(attempts):
+            response = self._send_payload(command, payload)
+            if not self._is_transient_parse_error(response) or attempt + 1 >= attempts:
+                return response
+            time.sleep(0.05)
+            self._clear_serial_input()
+
+        return response or {"status": "error", "msg": "no response"}
 
     def run_test_script(self, test_type: str, expected_values: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run a named circuit validation routine using Arduino measurements."""
@@ -132,6 +134,22 @@ class ArduinoTester:
         if self._serial is not None and hasattr(self._serial, "reset_input_buffer"):
             self._serial.reset_input_buffer()
 
+    def _send_payload(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Send one JSON payload and return the parsed response."""
+
+        if self._serial is None:
+            raise ArduinoUnavailableError(f"Arduino is not connected. Expected serial port: {self.port}")
+
+        line = json.dumps(payload, separators=(",", ":")) + "\n"
+        self._serial.write(line.encode("utf-8"))
+        raw = self._serial.readline().decode("utf-8", errors="replace").strip()
+        if not raw:
+            raise TimeoutError(f"No Arduino response for command {command!r}.")
+        try:
+            return self._normalize_response(command, json.loads(raw))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Arduino returned non-JSON response: {raw}") from exc
+
     def _hardware_payload(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
         """Return the JSON payload expected by the Arduino firmware."""
 
@@ -147,6 +165,12 @@ class ArduinoTester:
         if command.upper().strip() == "READ_ANALOG" and "voltage" in response and "value" not in response:
             response = {**response, "value": response["voltage"], "unit": "V"}
         return response
+
+    def _is_transient_parse_error(self, response: dict[str, Any]) -> bool:
+        """Return whether a response is safe to retry after serial reset noise."""
+
+        message = str(response.get("msg", response.get("message", ""))).lower()
+        return response.get("status") == "error" and "parse" in message
 
     def _analog_channel(self, pin: Any) -> Any:
         """Convert A0-style analog pin names to channel numbers for firmware dialects."""

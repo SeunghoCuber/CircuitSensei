@@ -35,6 +35,23 @@ def test_real_voltage_divider_script_uses_read_analog(monkeypatch) -> None:
     assert fake_serial.writes == [b'{"cmd":"read_analog","pin":0}\n']
 
 
+def test_real_command_retries_transient_parse_error(monkeypatch) -> None:
+    fake_serial = _FakeSerial(
+        [
+            b'{"status":"error","msg":"parse error"}\n',
+            b'{"status":"ok","pin":0,"raw":512,"voltage":2.5}\n',
+        ]
+    )
+    monkeypatch.setattr("circuit_sensei.hardware.arduino_tester.time.sleep", lambda seconds: None)
+    tester = ArduinoTester(port="/dev/fake", mock_mode=False, _serial=fake_serial)
+
+    result = tester.send_command("READ_ANALOG", {"pin": "A0"})
+
+    assert result == {"status": "ok", "pin": 0, "raw": 512, "voltage": 2.5, "value": 2.5, "unit": "V"}
+    assert fake_serial.writes == [b'{"cmd":"read_analog","pin":0}\n', b'{"cmd":"read_analog","pin":0}\n']
+    assert fake_serial.reset_called is True
+
+
 def test_close_releases_serial_connection() -> None:
     fake_serial = _FakeSerial([])
     tester = ArduinoTester(port="/dev/fake", mock_mode=False, _serial=fake_serial)
