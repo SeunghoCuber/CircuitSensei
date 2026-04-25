@@ -11,6 +11,21 @@ hardware:
   baud_rate: 115200
   serial_timeout_seconds: 2.0
 
+camera:
+  # On macOS, AVFoundation usually matches the default Camera app more closely
+  # than OpenCV's generic backend.
+  backend: avfoundation
+  warmup_frames: 25
+  warmup_delay_seconds: 0.04
+  auto_enhance: true
+  dark_threshold: 85.0
+  target_brightness: 135.0
+  # Optional manual tuning if your webcam still captures dark frames.
+  # brightness: 0.5
+  # contrast: 0.5
+  # exposure: -4
+  # gain: 0
+
 paths:
   frame_path: /tmp/sensei_frame.jpg
   annotated_path: /tmp/sensei_annotated.jpg

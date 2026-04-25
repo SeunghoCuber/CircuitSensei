@@ -51,6 +51,7 @@ class AgentSession:
     breadboard_geometry: dict[str, Any] = field(default_factory=dict)
     arduino_connected: bool = False
     arduino_port: str | None = None
+    plan_repairs: list[str] = field(default_factory=list)
 
     def add_history(self, role: str, content: Any, name: str | None = None) -> None:
         """Append an item to conversation history."""
@@ -81,6 +82,7 @@ class AgentSession:
             "breadboard_geometry": self.breadboard_geometry,
             "arduino_connected": self.arduino_connected,
             "arduino_port": self.arduino_port,
+            "plan_repairs": self.plan_repairs,
         }
 
 
@@ -121,6 +123,10 @@ DETERMINISTIC_FALLBACKS: dict[SessionState, SessionState] = {
     SessionState.TEST: SessionState.IDLE,
 }
 
+TOP_BANK_ROWS = tuple("ABCDE")
+BOTTOM_BANK_ROWS = tuple("FGHIJ")
+ALL_BREADBOARD_ROWS = TOP_BANK_ROWS + BOTTOM_BANK_ROWS
+
 
 def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
     """Return a safe built-in plan when Gemini omits structured plan JSON."""
@@ -149,34 +155,34 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
             },
             {
                 "step": 2,
-                "instruction": "Place R2 from F20 to F30, making column 20 the divider midpoint.",
-                "verification": "Verify R2 bridges F20 and F30 and shares column 20 with R1.",
+                "instruction": "Place R2 from B20 to B30, using B20 as the same midpoint node as R1's A20 leg.",
+                "verification": "Verify R2 bridges B20 and B30. B20 is electrically common with A20, but it is a separate physical hole.",
                 "annotations": {
                     "points": [
-                        {"row": "F", "col": 20, "label": "R2 leg 1"},
-                        {"row": "F", "col": 30, "label": "R2 leg 2"},
+                        {"row": "B", "col": 20, "label": "R2 leg 1"},
+                        {"row": "B", "col": 30, "label": "R2 leg 2"},
                     ],
                     "arrows": [
                         {
-                            "from": {"row": "F", "col": 20},
-                            "to": {"row": "F", "col": 30},
+                            "from": {"row": "B", "col": 20},
+                            "to": {"row": "B", "col": 30},
                             "label": "R2",
                         }
                     ],
-                    "message": "Place R2 between F20 and F30.",
+                    "message": "Place R2 between B20 and B30.",
                 },
             },
             {
                 "step": 3,
-                "instruction": "With Arduino outputs still inactive, connect A0 to column 20, D9 to column 10, and GND to column 30.",
-                "verification": "Verify A0 reaches column 20, D9 reaches column 10, and GND reaches column 30.",
+                "instruction": "With Arduino outputs still inactive, connect A0 to C20, D9 to B10, and GND to C30.",
+                "verification": "Verify A0 reaches C20, D9 reaches B10, and GND reaches C30. These use free holes on the same nodes as the divider.",
                 "annotations": {
                     "points": [
-                        {"row": "J", "col": 20, "label": "A0 sense"},
-                        {"row": "J", "col": 10, "label": "D9 test source"},
-                        {"row": "J", "col": 30, "label": "GND"},
+                        {"row": "C", "col": 20, "label": "A0 sense"},
+                        {"row": "B", "col": 10, "label": "D9 test source"},
+                        {"row": "C", "col": 30, "label": "GND"},
                     ],
-                    "message": "Wire Arduino test leads: A0 to 20, D9 to 10, GND to 30.",
+                    "message": "Wire Arduino test leads: A0 to C20, D9 to B10, GND to C30.",
                 },
             },
         ]
@@ -246,6 +252,202 @@ def summarize_builtin_plan(plan: list[dict[str, Any]], goal: str) -> str:
     return f"{calc}\n\nPlacement plan:\n{steps}"
 
 
+def breadboard_node(row: str, col: int) -> tuple[str, int]:
+    """Return the electrical node for a breadboard hole."""
+
+    normalized = row.upper().strip()
+    if normalized in TOP_BANK_ROWS:
+        return "top", col
+    if normalized in BOTTOM_BANK_ROWS:
+        return "bottom", col
+    return normalized, col
+
+
+def equivalent_holes(row: str, col: int) -> list[tuple[str, int]]:
+    """Return other holes electrically common with ``row``/``col``."""
+
+    normalized = row.upper().strip()
+    if normalized in TOP_BANK_ROWS:
+        rows = _rotated_rows(TOP_BANK_ROWS, normalized)
+    elif normalized in BOTTOM_BANK_ROWS:
+        rows = _rotated_rows(BOTTOM_BANK_ROWS, normalized)
+    else:
+        rows = (normalized,)
+    return [(candidate, col) for candidate in rows]
+
+
+def _rotated_rows(rows: tuple[str, ...], first: str) -> tuple[str, ...]:
+    index = rows.index(first)
+    return rows[index:] + rows[:index]
+
+
+def validate_and_repair_plan(plan: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Repair exact-hole reuse while preserving breadboard electrical nodes."""
+
+    import copy
+
+    repaired = copy.deepcopy(plan)
+    occupied: dict[tuple[str, int], str] = {}
+    repairs: list[str] = []
+
+    for step in repaired:
+        replacements: dict[tuple[str, int], tuple[str, int]] = {}
+        for point in _iter_unique_hole_dicts(step):
+            location = _hole_from_mapping(point)
+            if location is None:
+                continue
+            row, col = location
+            label = str(point.get("label", step.get("instruction", "connection")))
+            key = (row, col)
+
+            if key not in occupied:
+                occupied[key] = label
+                continue
+
+            replacement = _first_free_equivalent(row, col, occupied)
+            if replacement is None:
+                repairs.append(
+                    f"Could not repair duplicate hole {row}{col}; all holes on node {breadboard_node(row, col)} are occupied."
+                )
+                continue
+
+            new_row, new_col = replacement
+            point["row"] = new_row
+            point["col"] = new_col
+            occupied[replacement] = label
+            replacements[key] = replacement
+            repairs.append(
+                f"Moved {label} from occupied hole {row}{col} to electrically equivalent hole {new_row}{new_col}."
+            )
+
+        if replacements:
+            _apply_location_replacements(step, replacements)
+            _apply_text_replacements(step, replacements)
+
+    return repaired, repairs
+
+
+def _iter_unique_hole_dicts(step: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return unique mutable row/col dictionaries from one plan step."""
+
+    seen: set[int] = set()
+    point_locations: set[tuple[str, int]] = set()
+    holes: list[dict[str, Any]] = []
+    annotations = step.get("annotations", {})
+    if not isinstance(annotations, dict):
+        return holes
+
+    for point in annotations.get("points", []):
+        if isinstance(point, dict) and id(point) not in seen:
+            seen.add(id(point))
+            holes.append(point)
+            location = _hole_from_mapping(point)
+            if location is not None:
+                point_locations.add(location)
+
+    for arrow in annotations.get("arrows", []):
+        if not isinstance(arrow, dict):
+            continue
+        for key in ("from", "to"):
+            endpoint = arrow.get(key)
+            if isinstance(endpoint, dict) and id(endpoint) not in seen:
+                location = _hole_from_mapping(endpoint)
+                if location in point_locations:
+                    continue
+                seen.add(id(endpoint))
+                holes.append(endpoint)
+    return holes
+
+
+def _hole_from_mapping(mapping: dict[str, Any]) -> tuple[str, int] | None:
+    try:
+        row = str(mapping["row"]).strip().upper()
+        col = int(mapping["col"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if row not in ALL_BREADBOARD_ROWS:
+        return None
+    return row, col
+
+
+def _first_free_equivalent(
+    row: str,
+    col: int,
+    occupied: dict[tuple[str, int], str],
+) -> tuple[str, int] | None:
+    for candidate in equivalent_holes(row, col):
+        if candidate not in occupied:
+            return candidate
+    return None
+
+
+def _apply_text_replacements(
+    step: dict[str, Any],
+    replacements: dict[tuple[str, int], tuple[str, int]],
+) -> None:
+    fields = ["instruction", "verification"]
+    annotations = step.get("annotations")
+    if isinstance(annotations, dict):
+        fields.append("annotations.message")
+
+    for field in fields:
+        if field == "annotations.message":
+            value = annotations.get("message") if isinstance(annotations, dict) else None
+            if isinstance(value, str):
+                annotations["message"] = _replace_locations(value, replacements)
+            continue
+        value = step.get(field)
+        if isinstance(value, str):
+            step[field] = _replace_locations(value, replacements)
+
+    if isinstance(annotations, dict):
+        for arrow in annotations.get("arrows", []):
+            if isinstance(arrow, dict) and isinstance(arrow.get("label"), str):
+                arrow["label"] = _replace_locations(arrow["label"], replacements)
+        for point in annotations.get("points", []):
+            if isinstance(point, dict) and isinstance(point.get("label"), str):
+                point["label"] = _replace_locations(point["label"], replacements)
+
+
+def _replace_locations(text: str, replacements: dict[tuple[str, int], tuple[str, int]]) -> str:
+    updated = text
+    for old, new in replacements.items():
+        old_label = f"{old[0]}{old[1]}"
+        new_label = f"{new[0]}{new[1]}"
+        updated = re.sub(rf"\b{re.escape(old_label)}\b", new_label, updated)
+    return updated
+
+
+def _apply_location_replacements(
+    step: dict[str, Any],
+    replacements: dict[tuple[str, int], tuple[str, int]],
+) -> None:
+    annotations = step.get("annotations", {})
+    if not isinstance(annotations, dict):
+        return
+    for mapping in _all_hole_dicts(annotations):
+        location = _hole_from_mapping(mapping)
+        if location in replacements:
+            new_row, new_col = replacements[location]
+            mapping["row"] = new_row
+            mapping["col"] = new_col
+
+
+def _all_hole_dicts(annotations: dict[str, Any]) -> list[dict[str, Any]]:
+    mappings: list[dict[str, Any]] = []
+    for point in annotations.get("points", []):
+        if isinstance(point, dict):
+            mappings.append(point)
+    for arrow in annotations.get("arrows", []):
+        if not isinstance(arrow, dict):
+            continue
+        for key in ("from", "to"):
+            endpoint = arrow.get(key)
+            if isinstance(endpoint, dict):
+                mappings.append(endpoint)
+    return mappings
+
+
 class GeminiModelClient:
     """Google Gemini Python SDK client with function-calling support and retries."""
 
@@ -298,6 +500,8 @@ class GeminiModelClient:
             "- Do not skip allowed state transitions.\n"
             "- In INTAKE, transition only to INTAKE or PLAN.\n"
             "- In PLAN, include %%PLAN_JSON%% with step annotations before moving to INSTRUCT.\n"
+            "- Plan with breadboard topology: A-E in the same column are electrically connected; F-J in the same column are electrically connected; E/F are separated by the center gap.\n"
+            "- Never put two physical leads into the exact same hole. Use an electrically equivalent free hole on the same node instead.\n"
             "- In INSTRUCT, give exactly one concise physical step; the host app handles camera annotation.\n"
             "- In VERIFY, wait for vision tool results before advancing.\n\n"
             "Return either tool calls or a normal user-facing response with the required state block."
@@ -734,6 +938,9 @@ class CircuitSenseiAgent:
                 transition = StateTransition(next_state=SessionState.INSTRUCT, reason="built-in plan ready")
             if "placement plan" not in clean_text.lower():
                 clean_text = f"{clean_text}\n\n{summarize_builtin_plan(self.session.placement_plan, self.session.circuit_goal)}".strip()
+        if previous_state == SessionState.PLAN and self.session.plan_repairs and "Adjusted for breadboard hole occupancy" not in clean_text:
+            repair_text = "\n".join(f"- {repair}" for repair in self.session.plan_repairs)
+            clean_text = f"{clean_text}\n\nAdjusted for breadboard hole occupancy:\n{repair_text}".strip()
 
         self.session.apply_transition(transition.next_state)
         self._advance_step_if_verified(previous_state, transition.next_state)
@@ -743,7 +950,9 @@ class CircuitSenseiAgent:
     def _set_plan(self, plan: list[dict[str, Any]]) -> None:
         """Replace the placement plan and reset step verification."""
 
-        self.session.placement_plan = plan
+        repaired, repairs = validate_and_repair_plan(plan)
+        self.session.placement_plan = repaired
+        self.session.plan_repairs = repairs
         self.session.current_step = 0
         self.session.verified_steps.clear()
 

@@ -10,7 +10,9 @@ from circuit_sensei.agent import (
     MockGeminiModelClient,
     SessionState,
     build_builtin_plan,
+    breadboard_node,
     parse_state_transition,
+    validate_and_repair_plan,
 )
 from circuit_sensei.tools import CircuitSenseiTools
 
@@ -180,6 +182,85 @@ def test_test_state_runs_arduino_without_restarting_plan(tmp_path) -> None:
     assert session.verified_steps == [1, 2, 3]
 
 
+def test_breadboard_node_models_terminal_strips() -> None:
+    assert breadboard_node("B", 15) == breadboard_node("C", 15)
+    assert breadboard_node("B", 15) != breadboard_node("F", 15)
+
+
+def test_plan_repair_moves_duplicate_hole_to_same_node() -> None:
+    plan = [
+        {
+            "step": 1,
+            "instruction": "Place R1 from B10 to B15.",
+            "annotations": {
+                "points": [
+                    {"row": "B", "col": 10, "label": "R1 leg 1"},
+                    {"row": "B", "col": 15, "label": "R1 leg 2"},
+                ],
+                "arrows": [
+                    {
+                        "from": {"row": "B", "col": 10},
+                        "to": {"row": "B", "col": 15},
+                        "label": "R1",
+                    }
+                ],
+                "message": "Place R1 from B10 to B15.",
+            },
+        },
+        {
+            "step": 2,
+            "instruction": "Place R2 from B15 to B20.",
+            "annotations": {
+                "points": [
+                    {"row": "B", "col": 15, "label": "R2 leg 1"},
+                    {"row": "B", "col": 20, "label": "R2 leg 2"},
+                ],
+                "arrows": [
+                    {
+                        "from": {"row": "B", "col": 15},
+                        "to": {"row": "B", "col": 20},
+                        "label": "R2",
+                    }
+                ],
+                "message": "Place R2 from B15 to B20.",
+            },
+        },
+    ]
+
+    repaired, repairs = validate_and_repair_plan(plan)
+
+    moved = repaired[1]["annotations"]["points"][0]
+    arrow_from = repaired[1]["annotations"]["arrows"][0]["from"]
+    assert moved == {"row": "C", "col": 15, "label": "R2 leg 1"}
+    assert arrow_from == {"row": "C", "col": 15}
+    assert "C15" in repaired[1]["instruction"]
+    assert breadboard_node("B", 15) == breadboard_node("C", 15)
+    assert repairs
+
+
+def test_agent_reports_plan_hole_repairs(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan_json = json_plan_with_duplicate_hole()
+    session = AgentSession(
+        current_state=SessionState.PLAN,
+        circuit_goal="build a divider",
+        inventory=["Arduino Uno", "two resistors"],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=_OneShotClient(
+            f"Plan ready.\n%%PLAN_JSON%%\n{plan_json}\n%%ENDPLAN_JSON%%\n%%STATE%%\n"
+            '{"next_state":"INSTRUCT","reason":"ready"}\n%%END%%'
+        ),
+    )
+
+    response = agent.handle_user_message("")
+
+    assert "Adjusted for breadboard hole occupancy" in response
+    assert session.placement_plan[1]["annotations"]["points"][0]["row"] == "C"
+
+
 def _config(tmp_path):
     return {
         "gemini": {"model": "gemini-2.5-flash", "vision_model": "gemini-2.5-flash", "retries": 1},
@@ -204,3 +285,34 @@ class _OneShotClient:
 
     def generate(self, session: AgentSession, function_declarations):
         return ModelTurn(text=self.text)
+
+
+def json_plan_with_duplicate_hole() -> str:
+    import json
+
+    return json.dumps(
+        [
+            {
+                "step": 1,
+                "instruction": "Place R1 from B10 to B15.",
+                "annotations": {
+                    "points": [
+                        {"row": "B", "col": 10, "label": "R1 leg 1"},
+                        {"row": "B", "col": 15, "label": "R1 leg 2"},
+                    ],
+                    "message": "Place R1 from B10 to B15.",
+                },
+            },
+            {
+                "step": 2,
+                "instruction": "Place R2 from B15 to B20.",
+                "annotations": {
+                    "points": [
+                        {"row": "B", "col": 15, "label": "R2 leg 1"},
+                        {"row": "B", "col": 20, "label": "R2 leg 2"},
+                    ],
+                    "message": "Place R2 from B15 to B20.",
+                },
+            },
+        ]
+    )

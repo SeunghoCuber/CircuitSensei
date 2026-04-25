@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from circuit_sensei.hardware.arduino_tester import ArduinoTester, ArduinoUnavailableError
-from circuit_sensei.hardware.camera import CameraCapture, image_size_from_config
+from circuit_sensei.hardware.camera import CameraCapture, camera_settings_from_config, image_size_from_config
 from circuit_sensei.hardware.overlay import BreadboardGeometry, FrameAnnotator
 
 
@@ -101,6 +101,7 @@ class CircuitSenseiTools:
         self.camera = CameraCapture(
             camera_index=int(hardware.get("camera_index", 0)),
             mock_mode=self.mock_mode,
+            settings=camera_settings_from_config(config),
         )
         self.annotator = FrameAnnotator(self.geometry)
         self.arduino = ArduinoTester(

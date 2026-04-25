@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--goal", default="", help="Initial natural-language circuit goal.")
     parser.add_argument("--inventory", default="", help="Comma-separated component inventory.")
     parser.add_argument("--auto-demo", action="store_true", help="Advance automatically through the mock workflow.")
+    parser.add_argument("--capture-test", action="store_true", help="Capture one camera frame and exit.")
     return parser
 
 
@@ -71,6 +72,15 @@ def main(argv: list[str] | None = None) -> int:
         session.inventory = [item.strip() for item in args.inventory.split(",") if item.strip()]
 
     tools = CircuitSenseiTools(config, console=console)
+    if args.capture_test:
+        result = tools.capture_frame()
+        if result.get("ok"):
+            console.print_json(data=result)
+            console.print(f"Open the frame with: open {result['path']}")
+            return 0
+        console.print_json(data=result)
+        return 1
+
     model_client = create_model_client(config)
     agent = CircuitSenseiAgent(
         session=session,

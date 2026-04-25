@@ -131,8 +131,36 @@ The app writes:
 - Raw frame: `/tmp/sensei_frame.jpg`
 - Annotated guidance frame: `/tmp/sensei_annotated.jpg`
 
+Test one raw camera capture without starting the agent:
+
+```bash
+python -m circuit_sensei.main --real --capture-test
+open /tmp/sensei_frame.jpg
+```
+
+The capture result prints `brightness` and `enhanced`. On macOS, the default
+camera backend is `avfoundation`, with warmup frames enabled so auto-exposure
+has time to settle before the frame is saved. If the frame is still dark,
+Circuit-Sensei can automatically brighten the saved image before Gemini Vision
+sees it.
+
 If webcam capture fails, Circuit-Sensei asks the user to describe the placement
 manually instead of advancing blindly.
+
+Optional camera tuning lives in `config.yaml`:
+
+```yaml
+camera:
+  backend: avfoundation
+  warmup_frames: 25
+  warmup_delay_seconds: 0.04
+  auto_enhance: true
+  dark_threshold: 85.0
+  target_brightness: 135.0
+```
+
+If the image is still dark, increase `warmup_frames` first. If needed, tune
+`target_brightness` upward in small steps, such as `150.0`.
 
 ## Calibration
 
@@ -151,6 +179,23 @@ breadboard:
 hole grid in the camera image. Circuit-Sensei linearly interpolates approximate
 hole positions from those two points. This is intentionally hackathon-friendly,
 not a full computer-vision calibration system.
+
+## Breadboard Topology Rules
+
+Circuit-Sensei models the breadboard terminal strips when creating and checking
+plans:
+
+- Holes `A-E` in the same numbered column are electrically connected.
+- Holes `F-J` in the same numbered column are electrically connected.
+- The center gap separates `E` from `F`.
+- One physical hole can hold only one lead or jumper end.
+- To connect multiple things to the same node, use different holes in the same
+  connected strip, such as `B15` and `C15`.
+- A plan that tries to reuse the exact same hole, such as putting two different
+  leads into `B15`, is automatically repaired when a free equivalent hole exists.
+
+Example: if `B15` is already occupied, another connection to that same node can
+use `C15`, `D15`, `E15`, or `A15`.
 
 ## Arduino Wiring Assumptions
 
