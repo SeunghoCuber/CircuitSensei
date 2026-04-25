@@ -111,6 +111,8 @@ class ModelClient(Protocol):
 
 STATE_BLOCK_RE = re.compile(r"%%STATE%%\s*(\{.*?\})\s*%%END%%", re.DOTALL)
 PLAN_BLOCK_RE = re.compile(r"%%PLAN_JSON%%\s*(\[.*?\])\s*%%ENDPLAN_JSON%%", re.DOTALL)
+HOLE_REF_RE = re.compile(r"\b([A-Ja-j])\s*([1-9][0-9]?)\b")
+COLUMN_REF_RE = re.compile(r"\bcol(?:umn)?s?\.?\s*([1-9][0-9]?)\b", re.IGNORECASE)
 
 
 DETERMINISTIC_FALLBACKS: dict[SessionState, SessionState] = {
@@ -722,27 +724,45 @@ class CircuitSenseiAgent:
         return clean_text
 
     def _handle_instruction_state(self) -> str:
-        """Capture, annotate, and show the current planned step deterministically."""
+        """Prepare, annotate, and show the current planned step deterministically."""
 
         self._ensure_plan()
         step = self._current_plan_step()
-        annotations = dict(step.get("annotations", {}))
+        annotations = self._annotations_for_step(step)
         annotations.setdefault("step", step.get("step", self.current_step_number))
 
-        capture = self.tools.execute("capture_frame", {})
-        self._record_tool_result("capture_frame", capture)
-        if not capture.get("ok"):
-            text = (
-                "I could not capture the webcam frame. Check the webcam index and lighting, "
-                "then press /next to retry. If needed, describe the board placement manually."
-            )
-            return self._commit_response(self._state_response(text, SessionState.VERIFY, "camera capture failed"))
+        if self.tools.annotation_uses_camera:
+            capture = self.tools.execute("capture_frame", {})
+            self._record_tool_result("capture_frame", capture)
+            if not capture.get("ok"):
+                text = (
+                    "I could not capture the webcam frame. Check the webcam index and lighting, "
+                    "then press /next to retry. If needed, describe the board placement manually."
+                )
+                return self._commit_response(self._state_response(text, SessionState.VERIFY, "camera capture failed"))
+        else:
+            prepared = self.tools.prepare_annotation_frame()
+            self._record_tool_result("prepare_annotation_frame", prepared)
+            if not prepared.get("ok"):
+                text = (
+                    "I could not prepare the reference breadboard image for annotation. "
+                    "Check overlay.reference_image_path or switch overlay.annotation_source to camera.\n\n"
+                    f"{prepared.get('error', 'Unknown annotation frame error')}"
+                )
+                return self._commit_response(self._state_response(text, SessionState.INSTRUCT, "annotation frame failed"))
 
         annotated = self.tools.execute("annotate_frame", {"annotations": annotations})
         self._record_tool_result("annotate_frame", annotated)
         if annotated.get("ok"):
             shown = self.tools.execute("show_annotated_frame", {})
             self._record_tool_result("show_annotated_frame", shown)
+        else:
+            text = (
+                "I could not produce visible annotation data for this step. "
+                "I am staying at the instruction checkpoint so the plan can be corrected.\n\n"
+                f"{annotated.get('error', 'Unknown annotation error')}"
+            )
+            return self._commit_response(self._state_response(text, SessionState.INSTRUCT, "annotation missing"))
 
         instruction = str(step.get("instruction", "Place the next component as annotated."))
         path = annotated.get("annotated_path", self.tools.annotated_path)
@@ -752,6 +772,152 @@ class CircuitSenseiAgent:
             "If the webcam cannot see enough detail but you personally checked the placement, use /confirm."
         )
         return self._commit_response(self._state_response(text, SessionState.VERIFY, "instruction shown"))
+
+    def _annotations_for_step(self, step: dict[str, Any]) -> dict[str, Any]:
+        """Return visible annotations, deriving simple hole markers when needed."""
+
+        annotations = dict(step.get("annotations", {})) if isinstance(step.get("annotations"), dict) else {}
+        if self._has_renderable_annotations(annotations):
+            annotations.setdefault("message", step.get("instruction", ""))
+            return annotations
+
+        source = " ".join(
+            str(value)
+            for value in (
+                step.get("instruction", ""),
+                step.get("verification", ""),
+                annotations.get("message", ""),
+            )
+            if value
+        )
+
+        holes: list[tuple[str, int]] = []
+        for row, col_text in HOLE_REF_RE.findall(source):
+            hole = (row.upper(), int(col_text))
+            if hole not in holes:
+                holes.append(hole)
+
+        if not holes:
+            # Fallback for instructions like "connect to column 10" with no row letter.
+            for col in self._extract_column_refs(source):
+                hole = ("J", col)
+                if hole not in holes:
+                    holes.append(hole)
+
+        if holes:
+            annotations["points"] = [
+                {"row": row, "col": col, "label": f"{row}{col}"}
+                for row, col in holes
+            ]
+            if len(holes) >= 2:
+                start_row, start_col = holes[0]
+                end_row, end_col = holes[1]
+                annotations["arrows"] = [
+                    {
+                        "from": {"row": start_row, "col": start_col},
+                        "to": {"row": end_row, "col": end_col},
+                        "label": str(step.get("step", "place")),
+                    }
+                ]
+        else:
+            rail_points = self._derive_rail_points(source)
+            if rail_points:
+                annotations["points"] = rail_points
+                first = rail_points[0]
+                second = rail_points[1] if len(rail_points) > 1 else None
+                if second and str(first.get("rail", "")).lower() == str(second.get("rail", "")).lower():
+                    annotations["arrows"] = [
+                        {
+                            "from": self._location_payload(first),
+                            "to": self._location_payload(second),
+                            "label": "rail",
+                        }
+                    ]
+
+        annotations.setdefault("message", str(step.get("instruction", "")).strip())
+        return annotations
+
+    @staticmethod
+    def _has_renderable_annotations(annotations: dict[str, Any]) -> bool:
+        points = annotations.get("points", [])
+        for point in points if isinstance(points, list) else []:
+            if isinstance(point, dict) and CircuitSenseiAgent._is_renderable_location(point):
+                return True
+
+        arrows = annotations.get("arrows", [])
+        for arrow in arrows if isinstance(arrows, list) else []:
+            if not isinstance(arrow, dict):
+                continue
+            start = arrow.get("from")
+            end = arrow.get("to")
+            if isinstance(start, dict) and isinstance(end, dict):
+                if CircuitSenseiAgent._is_renderable_location(start) and CircuitSenseiAgent._is_renderable_location(end):
+                    return True
+        return False
+
+    @staticmethod
+    def _is_renderable_location(location: dict[str, Any]) -> bool:
+        if "row" in location and "col" in location:
+            return True
+        if "rail" in location:
+            return True
+        if "x" in location and "y" in location:
+            return True
+        return False
+
+    @staticmethod
+    def _extract_column_refs(text: str) -> list[int]:
+        columns: list[int] = []
+        for value in COLUMN_REF_RE.findall(text):
+            col = int(value)
+            if col not in columns:
+                columns.append(col)
+        return columns
+
+    @staticmethod
+    def _location_payload(point: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: point[key]
+            for key in ("row", "col", "rail", "side", "x", "y")
+            if key in point
+        }
+
+    def _derive_rail_points(self, text: str) -> list[dict[str, Any]]:
+        lowered = text.lower()
+        if "rail" not in lowered:
+            return []
+
+        positive = any(token in lowered for token in ("positive rail", "(+)", "+ rail", "5v rail", "vcc rail"))
+        negative = any(token in lowered for token in ("negative rail", "(-)", "- rail", "gnd rail", "ground rail"))
+        if not positive and not negative:
+            return []
+
+        columns = self._extract_column_refs(text)
+        points: list[dict[str, Any]] = []
+
+        def add_rail(rail: str, col: int, label: str) -> None:
+            point = {"rail": rail, "side": "left", "col": col, "label": label}
+            if point not in points:
+                points.append(point)
+
+        if positive and negative:
+            col = columns[0] if columns else 1
+            add_rail("positive", col, "+ rail")
+            add_rail("negative", col, "- rail")
+            return points
+
+        rail_name = "positive" if positive else "negative"
+        label = "+ rail" if rail_name == "positive" else "- rail"
+        if columns:
+            add_rail(rail_name, columns[0], label)
+            if len(columns) > 1:
+                add_rail(rail_name, columns[1], label)
+            return points
+
+        # For "any hole in + rail" style steps, show a short rail segment.
+        add_rail(rail_name, 1, label)
+        add_rail(rail_name, min(5, max(2, self.tools.geometry.columns)), label)
+        return points
 
     def _handle_verify_state(self) -> str:
         """Capture the board and run Gemini Vision verification for the current step."""
