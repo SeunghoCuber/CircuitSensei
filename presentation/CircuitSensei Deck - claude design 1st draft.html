@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CircuitSensei — LAHacks 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="deck-stage.js"></script>
+
+<style>
+  /* ── DESIGN TOKENS ───────────────────────────────────────────────── */
+  :root {
+    --bg:        oklch(0.11 0.02 245);
+    --bg2:       oklch(0.08 0.025 245);
+    --bg3:       oklch(0.15 0.02 245);
+    --surface:   oklch(0.17 0.02 245);
+    --teal:      oklch(0.72 0.16 190);
+    --teal-dim:  oklch(0.55 0.12 190);
+    --amber:     oklch(0.78 0.16 70);
+    --fg:        oklch(0.96 0.005 245);
+    --fg2:       oklch(0.72 0.01 245);
+    --fg3:       oklch(0.50 0.01 245);
+    --border:    oklch(0.25 0.02 245);
+
+    /* TYPE SCALE (px) */
+    --t-title:   72px;
+    --t-h1:      64px;
+    --t-h2:      48px;
+    --t-h3:      36px;
+    --t-body:    32px;
+    --t-small:   26px;
+    --t-xs:      24px;
+
+    /* SPACING */
+    --px: 120px;
+    --pt: 100px;
+    --pb: 80px;
+    --gap-title: 52px;
+    --gap-item:  32px;
+
+    --font-head: 'Space Grotesk', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  deck-stage { font-family: var(--font-head); }
+
+  /* ── SLIDE BASE ──────────────────────────────────────────────────── */
+  section {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    padding: var(--pt) var(--px) var(--pb);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── CIRCUIT TRACE DECORATION ────────────────────────────────────── */
+  .circuit-bg {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0.07;
+  }
+
+  /* ── SHARED COMPONENTS ───────────────────────────────────────────── */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    color: var(--teal);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+
+  .slide-title {
+    font-size: var(--t-h1);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--gap-title);
+    color: var(--fg);
+  }
+
+  .slide-title em {
+    font-style: normal;
+    color: var(--teal);
+  }
+
+  .body-text {
+    font-size: var(--t-body);
+    color: var(--fg2);
+    line-height: 1.55;
+    font-weight: 400;
+  }
+
+  .label {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    color: var(--teal);
+    letter-spacing: 0.08em;
+  }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    padding: 6px 18px;
+    border: 1.5px solid var(--teal-dim);
+    color: var(--teal);
+    border-radius: 4px;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── RULE / DIVIDER ──────────────────────────────────────────────── */
+  .rule {
+    width: 60px; height: 3px;
+    background: var(--teal);
+    margin-bottom: 40px;
+    border-radius: 2px;
+  }
+
+  /* ── CARD ────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 44px;
+  }
+
+  .card-teal {
+    border-color: var(--teal-dim);
+    background: oklch(0.14 0.03 190);
+  }
+
+  /* ── SLIDE 1: TITLE ──────────────────────────────────────────────── */
+  #s1 {
+    background: var(--bg2);
+    justify-content: center;
+    padding: 80px var(--px);
+  }
+
+  #s1 .lockup {
+    display: flex; flex-direction: column;
+    gap: 0;
+  }
+
+  #s1 .wordmark {
+    font-size: 100px;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--fg);
+  }
+
+  #s1 .wordmark span { color: var(--teal); }
+
+  #s1 .tagline {
+    margin-top: 32px;
+    font-size: var(--t-h3);
+    font-weight: 400;
+    color: var(--fg2);
+    line-height: 1.4;
+    max-width: 860px;
+  }
+
+  #s1 .meta {
+    margin-top: 64px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+
+  #s1 .track-badge {
+    display: flex; align-items: center; gap: 14px;
+    background: oklch(0.16 0.04 60);
+    border: 1.5px solid var(--amber);
+    border-radius: 8px;
+    padding: 14px 28px;
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--amber);
+  }
+
+  #s1 .hack-badge {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    color: var(--fg3);
+    letter-spacing: 0.06em;
+  }
+
+  /* right panel — breadboard SVG illustration */
+  #s1 .right {
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 700px;
+    overflow: hidden;
+    opacity: 0.85;
+  }
+
+  /* ── SLIDE 2: THE PROBLEM ────────────────────────────────────────── */
+  #s2 {
+    background: var(--bg2);
+  }
+
+  #s2 .pain-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 32px;
+    flex: 1;
+    margin-top: 16px;
+  }
+
+  #s2 .pain-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 48px 44px 52px;
+    display: flex; flex-direction: column;
+    gap: 24px;
+  }
+
+  #s2 .pain-num {
+    font-family: var(--font-mono);
+    font-size: 80px;
+    font-weight: 500;
+    color: var(--teal);
+    line-height: 1;
+    opacity: 0.35;
+  }
+
+  #s2 .pain-head {
+    font-size: var(--t-h3);
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.2;
+  }
+
+  #s2 .pain-body {
+    font-size: var(--t-small);
+    color: var(--fg2);
+    line-height: 1.6;
+    font-weight: 400;
+  }
+
+  /* ── SLIDE 3: MEET CIRCUIT SENSEI ────────────────────────────────── */
+  #s3 {
+    background: var(--bg);
+  }
+
+  #s3 .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    flex: 1;
+    align-items: start;
+    margin-top: 12px;
+  }
+
+  #s3 .hero-desc {
+    font-size: var(--t-h3);
+    font-weight: 400;
+    color: var(--fg2);
+    line-height: 1.6;
+  }
+
+  #s3 .hero-desc strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  #s3 .features {
+    display: flex; flex-direction: column;
+    gap: var(--gap-item);
+  }
+
+  #s3 .feat {
+    display: flex; gap: 28px; align-items: flex-start;
+  }
+
+  #s3 .feat-icon {
+    width: 52px; height: 52px; flex-shrink: 0;
+    border-radius: 10px;
+    background: oklch(0.18 0.04 190);
+    border: 1px solid var(--teal-dim);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--teal);
+  }
+
+  #s3 .feat-text h4 {
+    font-size: var(--t-body);
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--fg);
+  }
+
+  #s3 .feat-text p {
+    font-size: var(--t-small);
+    color: var(--fg2);
+    line-height: 1.5;
+  }
+
+  /* ── SLIDE 4: WORKFLOW ───────────────────────────────────────────── */
+  #s4 {
+    background: var(--bg2);
+  }
+
+  #s4 .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    flex: 1;
+    margin-top: 20px;
+  }
+
+  #s4 .step {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 48px 36px 52px;
+    display: flex; flex-direction: column;
+    gap: 20px;
+    position: relative;
+  }
+
+  #s4 .step:first-child { border-radius: 14px 0 0 14px; }
+  #s4 .step:last-child  { border-radius: 0 14px 14px 0; }
+
+  #s4 .step-arrow {
+    position: absolute;
+    right: -22px; top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    width: 44px; height: 44px;
+    background: var(--bg2);
+    border: 1.5px solid var(--teal-dim);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--teal);
+    font-size: 24px;
+  }
+
+  #s4 .step-label {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    color: var(--teal);
+    letter-spacing: 0.1em;
+  }
+
+  #s4 .step-name {
+    font-size: 30px;
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.2;
+  }
+
+  #s4 .step-desc {
+    font-size: var(--t-xs);
+    color: var(--fg2);
+    line-height: 1.55;
+    font-weight: 400;
+  }
+
+  #s4 .step.highlight {
+    background: oklch(0.14 0.04 190);
+    border-color: var(--teal-dim);
+  }
+
+  /* ── SLIDE 5: VISUAL GUIDANCE ────────────────────────────────────── */
+  #s5 {
+    background: var(--bg);
+    flex-direction: row;
+    gap: 80px;
+    align-items: center;
+    padding-top: 80px; padding-bottom: 80px;
+  }
+
+  #s5 .left {
+    flex: 1;
+    display: flex; flex-direction: column;
+    gap: 40px;
+  }
+
+  #s5 .right {
+    flex: 1.1;
+    display: flex; flex-direction: column;
+    gap: 20px;
+  }
+
+  #s5 .cam-frame {
+    background: var(--bg2);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    aspect-ratio: 16/10;
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  #s5 .caption {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    color: var(--fg3);
+    letter-spacing: 0.04em;
+  }
+
+  #s5 .bullet-list {
+    display: flex; flex-direction: column;
+    gap: 24px;
+  }
+
+  #s5 .bullet {
+    display: flex; gap: 20px; align-items: flex-start;
+  }
+
+  #s5 .bullet-dot {
+    width: 10px; height: 10px;
+    background: var(--teal);
+    border-radius: 50%;
+    margin-top: 11px; flex-shrink: 0;
+  }
+
+  #s5 .bullet p {
+    font-size: var(--t-body);
+    color: var(--fg2);
+    line-height: 1.5;
+  }
+
+  #s5 .bullet p strong { color: var(--fg); font-weight: 600; }
+
+  /* ── SLIDE 6: TECH STACK ─────────────────────────────────────────── */
+  #s6 {
+    background: var(--bg2);
+  }
+
+  #s6 .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 28px;
+    flex: 1;
+    margin-top: 12px;
+    align-content: start;
+  }
+
+  #s6 .tech-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 36px 32px;
+    display: flex; flex-direction: column;
+    gap: 16px;
+  }
+
+  #s6 .tech-card.accent {
+    background: oklch(0.14 0.04 190);
+    border-color: var(--teal-dim);
+  }
+
+  #s6 .tech-icon {
+    font-family: var(--font-mono);
+    font-size: 28px;
+    color: var(--teal);
+    font-weight: 500;
+  }
+
+  #s6 .tech-name {
+    font-size: 30px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  #s6 .tech-role {
+    font-size: var(--t-xs);
+    color: var(--fg2);
+    line-height: 1.5;
+  }
+
+  /* ── SLIDE 7: IMPACT ─────────────────────────────────────────────── */
+  #s7 {
+    background: var(--bg);
+    flex-direction: row;
+    gap: 80px;
+    align-items: stretch;
+    padding-top: 80px; padding-bottom: 80px;
+  }
+
+  #s7 .left {
+    flex: 1;
+    display: flex; flex-direction: column;
+    gap: 48px;
+    justify-content: center;
+  }
+
+  #s7 .right {
+    flex: 1;
+    display: flex; flex-direction: column;
+    gap: 24px;
+    justify-content: center;
+  }
+
+  #s7 .stat-block {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+
+  #s7 .stat-num {
+    font-size: 88px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--teal);
+  }
+
+  #s7 .stat-label {
+    font-size: var(--t-body);
+    color: var(--fg2);
+    font-weight: 400;
+  }
+
+  #s7 .audience-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 36px;
+    display: flex; gap: 24px; align-items: flex-start;
+  }
+
+  #s7 .aud-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    margin-top: 12px; flex-shrink: 0;
+  }
+
+  #s7 .aud-title {
+    font-size: var(--t-body);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  #s7 .aud-desc {
+    font-size: var(--t-small);
+    color: var(--fg2);
+    line-height: 1.5;
+  }
+
+  /* ── SLIDE 8: NEXT STEPS ─────────────────────────────────────────── */
+  #s8 {
+    background: var(--bg2);
+  }
+
+  #s8 .next-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    margin-top: 16px;
+  }
+
+  #s8 .next-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 44px;
+    display: flex; gap: 28px; align-items: flex-start;
+  }
+
+  #s8 .next-num {
+    font-family: var(--font-mono);
+    font-size: 48px;
+    font-weight: 500;
+    color: var(--teal);
+    opacity: 0.4;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  #s8 .next-head {
+    font-size: var(--t-body);
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--fg);
+  }
+
+  #s8 .next-body {
+    font-size: var(--t-small);
+    color: var(--fg2);
+    line-height: 1.55;
+  }
+
+  #s8 .cta-bar {
+    margin-top: 36px;
+    display: flex; align-items: center; gap: 40px;
+  }
+
+  #s8 .cta-main {
+    font-family: var(--font-mono);
+    font-size: var(--t-body);
+    color: var(--teal);
+    letter-spacing: 0.04em;
+  }
+
+  #s8 .cta-sub {
+    font-size: var(--t-small);
+    color: var(--fg3);
+  }
+
+  /* ── SECTION HEADER SLIDE ────────────────────────────────────────── */
+  .section-header {
+    background: var(--bg2) !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    padding: var(--pt) var(--px) var(--pb) !important;
+  }
+
+  .section-header .sh-inner {
+    display: flex; flex-direction: column; gap: 28px;
+    max-width: 900px;
+  }
+
+  .section-header .sh-label {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    color: var(--teal);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .section-header .sh-title {
+    font-size: var(--t-title);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--fg);
+  }
+
+  .section-header .sh-sub {
+    font-size: var(--t-body);
+    color: var(--fg2);
+    line-height: 1.6;
+    font-weight: 400;
+  }
+</style>
+</head>
+<body>
+<deck-stage width="1920" height="1080">
+
+  <!-- ─── SLIDE 1: TITLE ─────────────────────────────────────────── -->
+  <section id="s1" data-label="01 Title">
+    <!-- circuit trace background -->
+    <svg class="circuit-bg" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="oklch(0.72 0.16 190)" stroke-width="1.5" fill="none">
+        <polyline points="0,200 200,200 200,400 600,400"/>
+        <circle cx="200" cy="200" r="5" fill="oklch(0.72 0.16 190)"/>
+        <circle cx="600" cy="400" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="600,400 600,550 900,550"/>
+        <polyline points="900,550 900,300 1200,300"/>
+        <circle cx="900" cy="550" r="5" fill="oklch(0.72 0.16 190)"/>
+        <circle cx="1200" cy="300" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="1200,300 1200,700 1600,700"/>
+        <polyline points="1600,700 1600,400 1920,400"/>
+        <circle cx="1600" cy="700" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="400,0 400,150 700,150 700,600"/>
+        <circle cx="700" cy="150" r="5" fill="oklch(0.72 0.16 190)"/>
+        <circle cx="700" cy="600" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="700,600 1100,600 1100,900 1500,900"/>
+        <circle cx="1100" cy="600" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="1500,900 1500,1080"/>
+        <polyline points="0,750 300,750 300,1000 800,1000"/>
+        <circle cx="300" cy="750" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="800,1000 800,800 1300,800"/>
+        <circle cx="800" cy="1000" r="5" fill="oklch(0.72 0.16 190)"/>
+        <polyline points="1300,800 1300,1080"/>
+        <polyline points="1700,0 1700,200 1920,200"/>
+        <polyline points="1800,500 1920,500"/>
+        <polyline points="0,950 150,950 150,1080"/>
+        <!-- small squares (pads) -->
+        <rect x="196" y="196" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="596" y="396" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="896" y="546" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="1196" y="296" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="1596" y="696" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="696" y="596" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="1096" y="596" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+        <rect x="296" y="746" width="8" height="8" fill="oklch(0.72 0.16 190)" rx="1"/>
+      </g>
+    </svg>
+
+    <div class="lockup">
+      <div class="wordmark">Circuit<span>Sensei</span></div>
+      <div class="tagline">
+        An open-source agentic assistant that guides students<br/>
+        through breadboard circuits — step by step, visually.
+      </div>
+      <div class="meta">
+        <div class="track-badge">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M7 11l3 3 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Light the Way · Aramco Track
+        </div>
+        <div class="hack-badge">LAHacks 2026 &nbsp;·&nbsp; April 25–27</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 2: THE PROBLEM ───────────────────────────────────── -->
+  <section id="s2" data-label="02 The Learning Gap">
+    <div class="eyebrow">The Problem</div>
+    <div class="slide-title">The Learning Gap in Electronics</div>
+    <div class="pain-grid">
+      <div class="pain-card">
+        <div class="pain-num">01</div>
+        <div class="pain-head">No Spatial Awareness</div>
+        <div class="pain-body">Beginners stare at a breadboard and don't know where to place components. Diagrams don't map to physical rows and columns.</div>
+      </div>
+      <div class="pain-card">
+        <div class="pain-num">02</div>
+        <div class="pain-head">No Real-Time Feedback</div>
+        <div class="pain-body">Traditional tutorials are static. Students make wiring mistakes and have no way to verify correctness before applying power.</div>
+      </div>
+      <div class="pain-card">
+        <div class="pain-num">03</div>
+        <div class="pain-head">Dangerous Errors</div>
+        <div class="pain-body">A single miswired LED or short circuit can destroy components or cause smoke. Fear of breaking things stops learners cold.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 3: MEET CIRCUITSENSEI ───────────────────────────── -->
+  <section id="s3" data-label="03 Meet CircuitSensei">
+    <div class="eyebrow">The Solution</div>
+    <div class="slide-title">Meet <em>CircuitSensei</em></div>
+    <div class="layout">
+      <div class="hero-desc">
+        CircuitSensei takes your <strong>circuit goal</strong> and <strong>component inventory</strong> in plain English — then acts as a real-time AI mentor, drawing guidance directly onto a live webcam view of your breadboard.
+        <br/><br/>
+        No prior electronics knowledge required.
+      </div>
+      <div class="features">
+        <div class="feat">
+          <div class="feat-icon">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><rect x="3" y="3" width="20" height="20" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M8 13h10M13 8v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </div>
+          <div class="feat-text">
+            <h4>Natural Language Planning</h4>
+            <p>Describe your goal. CircuitSensei derives a safe, step-by-step placement plan with exact row/column coordinates.</p>
+          </div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><circle cx="13" cy="13" r="9" stroke="currentColor" stroke-width="1.8"/><circle cx="13" cy="13" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M13 4v2M13 20v2M4 13h2M20 13h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </div>
+          <div class="feat-text">
+            <h4>On-Screen Visual Annotation</h4>
+            <p>Highlighted holes, arrows, and labels are drawn over the live camera feed — no LED strips, no special hardware.</p>
+          </div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path d="M5 13l5 5 11-11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="feat-text">
+            <h4>Gemini Vision Verification</h4>
+            <p>Before each step advances, Gemini Vision inspects the board image to confirm correct placement.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 4: WORKFLOW ──────────────────────────────────────── -->
+  <section id="s4" data-label="04 The Agentic Workflow">
+    <div class="eyebrow">Architecture</div>
+    <div class="slide-title">The Agentic Workflow</div>
+    <div class="flow">
+      <div class="step">
+        <div class="step-label">STATE 1</div>
+        <div class="step-name">Intake</div>
+        <div class="step-desc">User states a circuit goal and lists their components in plain English. Agent parses both.</div>
+        <div class="step-arrow">›</div>
+      </div>
+      <div class="step">
+        <div class="step-label">STATE 2</div>
+        <div class="step-name">Plan</div>
+        <div class="step-desc">Agent derives a breadboard placement plan. Hole conflicts are auto-repaired using topology rules.</div>
+        <div class="step-arrow">›</div>
+      </div>
+      <div class="step highlight">
+        <div class="step-label">STATE 3</div>
+        <div class="step-name">Instruct</div>
+        <div class="step-desc">One physical action at a time. Annotated overlay highlights exactly which holes to use.</div>
+        <div class="step-arrow">›</div>
+      </div>
+      <div class="step highlight">
+        <div class="step-label">STATE 4</div>
+        <div class="step-name">Verify</div>
+        <div class="step-desc">Gemini Vision inspects the webcam frame. Step only advances after visual confirmation passes.</div>
+        <div class="step-arrow">›</div>
+      </div>
+      <div class="step">
+        <div class="step-label">STATE 5</div>
+        <div class="step-name">Test</div>
+        <div class="step-desc">Arduino connects via USB serial. Agent runs voltage, LED, and button tests on the finished circuit.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 5: VISUAL GUIDANCE ──────────────────────────────── -->
+  <section id="s5" data-label="05 Visual Guidance in Action">
+    <div class="left">
+      <div>
+        <div class="eyebrow">Feature Deep-Dive</div>
+        <div class="slide-title" style="font-size:56px; margin-bottom: 40px;">Visual Guidance<br/>in Action</div>
+      </div>
+      <div class="bullet-list">
+        <div class="bullet">
+          <div class="bullet-dot"></div>
+          <p>Agent maps breadboard coordinates to <strong>pixel positions</strong> in the webcam frame using a calibrated grid.</p>
+        </div>
+        <div class="bullet">
+          <div class="bullet-dot"></div>
+          <p><strong>Arrows, labels, and highlighted holes</strong> are drawn directly on the captured image — no special hardware needed.</p>
+        </div>
+        <div class="bullet">
+          <div class="bullet-dot"></div>
+          <p>Safety net: if the image is too dark, <strong>auto-brightness enhancement</strong> kicks in before Gemini sees the frame.</p>
+        </div>
+        <div class="bullet">
+          <div class="bullet-dot"></div>
+          <p>Emergency keyword detection — mentions of <strong>smoke, heat, or burning</strong> immediately trigger a disconnect warning.</p>
+        </div>
+      </div>
+    </div>
+    <div class="right">
+      <!-- Simulated annotated camera frame -->
+      <div class="cam-frame">
+        <svg width="100%" height="100%" viewBox="0 0 760 475" xmlns="http://www.w3.org/2000/svg">
+          <!-- dark bg -->
+          <rect width="760" height="475" fill="oklch(0.10 0.015 245)"/>
+          <!-- breadboard body -->
+          <rect x="60" y="60" width="640" height="355" rx="8" fill="oklch(0.18 0.02 245)" stroke="oklch(0.28 0.02 245)" stroke-width="1.5"/>
+          <!-- center gap -->
+          <rect x="60" y="225" width="640" height="25" fill="oklch(0.13 0.015 245)"/>
+          <!-- hole grid top bank (rows A-E) -->
+          <g fill="oklch(0.30 0.02 245)">
+            <!-- row labels -->
+            <text x="38" y="103" font-family="DM Mono,monospace" font-size="11" fill="oklch(0.50 0.01 245)" text-anchor="middle">A</text>
+            <text x="38" y="133" font-family="DM Mono,monospace" font-size="11" fill="oklch(0.50 0.01 245)" text-anchor="middle">B</text>
+            <text x="38" y="163" font-family="DM Mono,monospace" font-size="11" fill="oklch(0.50 0.01 245)" text-anchor="middle">C</text>
+            <text x="38" y="193" font-family="DM Mono,monospace" font-size="11" fill="oklch(0.50 0.01 245)" text-anchor="middle">D</text>
+            <text x="38" y="218" font-family="DM Mono,monospace" font-size="11" fill="oklch(0.50 0.01 245)" text-anchor="middle">E</text>
+            <!-- rows A-E, cols 1-20 (sample subset) -->
+            <script type="application/fake">/* holes drawn below */</script>
+          </g>
+          <!-- Draw holes programmatically via repeated rects in SVG -->
+          <!-- We'll draw rows A-E (y: 97,127,157,187,217) and cols 1..20 (x: 80+i*28) -->
+          <!-- Row A -->
+          <g fill="oklch(0.28 0.02 245)">
+            <!-- col 1-20 row A y=97 -->
+            <rect x="77" y="91" width="10" height="10" rx="2"/><rect x="105" y="91" width="10" height="10" rx="2"/><rect x="133" y="91" width="10" height="10" rx="2"/><rect x="161" y="91" width="10" height="10" rx="2"/><rect x="189" y="91" width="10" height="10" rx="2"/><rect x="217" y="91" width="10" height="10" rx="2"/><rect x="245" y="91" width="10" height="10" rx="2"/><rect x="273" y="91" width="10" height="10" rx="2"/><rect x="301" y="91" width="10" height="10" rx="2"/><rect x="329" y="91" width="10" height="10" rx="2"/><rect x="357" y="91" width="10" height="10" rx="2"/><rect x="385" y="91" width="10" height="10" rx="2"/><rect x="413" y="91" width="10" height="10" rx="2"/><rect x="441" y="91" width="10" height="10" rx="2"/><rect x="469" y="91" width="10" height="10" rx="2"/><rect x="497" y="91" width="10" height="10" rx="2"/><rect x="525" y="91" width="10" height="10" rx="2"/><rect x="553" y="91" width="10" height="10" rx="2"/><rect x="581" y="91" width="10" height="10" rx="2"/><rect x="609" y="91" width="10" height="10" rx="2"/>
+            <!-- Row B -->
+            <rect x="77" y="121" width="10" height="10" rx="2"/><rect x="105" y="121" width="10" height="10" rx="2"/><rect x="133" y="121" width="10" height="10" rx="2"/><rect x="161" y="121" width="10" height="10" rx="2"/><rect x="189" y="121" width="10" height="10" rx="2"/><rect x="217" y="121" width="10" height="10" rx="2"/><rect x="245" y="121" width="10" height="10" rx="2"/><rect x="273" y="121" width="10" height="10" rx="2"/><rect x="301" y="121" width="10" height="10" rx="2"/><rect x="329" y="121" width="10" height="10" rx="2"/><rect x="357" y="121" width="10" height="10" rx="2"/><rect x="385" y="121" width="10" height="10" rx="2"/><rect x="413" y="121" width="10" height="10" rx="2"/><rect x="441" y="121" width="10" height="10" rx="2"/><rect x="469" y="121" width="10" height="10" rx="2"/><rect x="497" y="121" width="10" height="10" rx="2"/><rect x="525" y="121" width="10" height="10" rx="2"/><rect x="553" y="121" width="10" height="10" rx="2"/><rect x="581" y="121" width="10" height="10" rx="2"/><rect x="609" y="121" width="10" height="10" rx="2"/>
+            <!-- Row C -->
+            <rect x="77" y="151" width="10" height="10" rx="2"/><rect x="105" y="151" width="10" height="10" rx="2"/><rect x="133" y="151" width="10" height="10" rx="2"/><rect x="161" y="151" width="10" height="10" rx="2"/><rect x="189" y="151" width="10" height="10" rx="2"/><rect x="217" y="151" width="10" height="10" rx="2"/><rect x="245" y="151" width="10" height="10" rx="2"/><rect x="273" y="151" width="10" height="10" rx="2"/><rect x="301" y="151" width="10" height="10" rx="2"/><rect x="329" y="151" width="10" height="10" rx="2"/><rect x="357" y="151" width="10" height="10" rx="2"/><rect x="385" y="151" width="10" height="10" rx="2"/><rect x="413" y="151" width="10" height="10" rx="2"/><rect x="441" y="151" width="10" height="10" rx="2"/><rect x="469" y="151" width="10" height="10" rx="2"/><rect x="497" y="151" width="10" height="10" rx="2"/><rect x="525" y="151" width="10" height="10" rx="2"/><rect x="553" y="151" width="10" height="10" rx="2"/><rect x="581" y="151" width="10" height="10" rx="2"/><rect x="609" y="151" width="10" height="10" rx="2"/>
+            <!-- Row D -->
+            <rect x="77" y="181" width="10" height="10" rx="2"/><rect x="105" y="181" width="10" height="10" rx="2"/><rect x="133" y="181" width="10" height="10" rx="2"/><rect x="161" y="181" width="10" height="10" rx="2"/><rect x="189" y="181" width="10" height="10" rx="2"/><rect x="217" y="181" width="10" height="10" rx="2"/><rect x="245" y="181" width="10" height="10" rx="2"/><rect x="273" y="181" width="10" height="10" rx="2"/><rect x="301" y="181" width="10" height="10" rx="2"/><rect x="329" y="181" width="10" height="10" rx="2"/><rect x="357" y="181" width="10" height="10" rx="2"/><rect x="385" y="181" width="10" height="10" rx="2"/><rect x="413" y="181" width="10" height="10" rx="2"/><rect x="441" y="181" width="10" height="10" rx="2"/><rect x="469" y="181" width="10" height="10" rx="2"/><rect x="497" y="181" width="10" height="10" rx="2"/><rect x="525" y="181" width="10" height="10" rx="2"/><rect x="553" y="181" width="10" height="10" rx="2"/><rect x="581" y="181" width="10" height="10" rx="2"/><rect x="609" y="181" width="10" height="10" rx="2"/>
+            <!-- Row E -->
+            <rect x="77" y="211" width="10" height="10" rx="2"/><rect x="105" y="211" width="10" height="10" rx="2"/><rect x="133" y="211" width="10" height="10" rx="2"/><rect x="161" y="211" width="10" height="10" rx="2"/><rect x="189" y="211" width="10" height="10" rx="2"/><rect x="217" y="211" width="10" height="10" rx="2"/><rect x="245" y="211" width="10" height="10" rx="2"/><rect x="273" y="211" width="10" height="10" rx="2"/><rect x="301" y="211" width="10" height="10" rx="2"/><rect x="329" y="211" width="10" height="10" rx="2"/><rect x="357" y="211" width="10" height="10" rx="2"/><rect x="385" y="211" width="10" height="10" rx="2"/><rect x="413" y="211" width="10" height="10" rx="2"/><rect x="441" y="211" width="10" height="10" rx="2"/><rect x="469" y="211" width="10" height="10" rx="2"/><rect x="497" y="211" width="10" height="10" rx="2"/><rect x="525" y="211" width="10" height="10" rx="2"/><rect x="553" y="211" width="10" height="10" rx="2"/><rect x="581" y="211" width="10" height="10" rx="2"/><rect x="609" y="211" width="10" height="10" rx="2"/>
+            <!-- Row F -->
+            <rect x="77" y="255" width="10" height="10" rx="2"/><rect x="105" y="255" width="10" height="10" rx="2"/><rect x="133" y="255" width="10" height="10" rx="2"/><rect x="161" y="255" width="10" height="10" rx="2"/><rect x="189" y="255" width="10" height="10" rx="2"/><rect x="217" y="255" width="10" height="10" rx="2"/><rect x="245" y="255" width="10" height="10" rx="2"/><rect x="273" y="255" width="10" height="10" rx="2"/><rect x="301" y="255" width="10" height="10" rx="2"/><rect x="329" y="255" width="10" height="10" rx="2"/><rect x="357" y="255" width="10" height="10" rx="2"/><rect x="385" y="255" width="10" height="10" rx="2"/><rect x="413" y="255" width="10" height="10" rx="2"/><rect x="441" y="255" width="10" height="10" rx="2"/><rect x="469" y="255" width="10" height="10" rx="2"/><rect x="497" y="255" width="10" height="10" rx="2"/><rect x="525" y="255" width="10" height="10" rx="2"/><rect x="553" y="255" width="10" height="10" rx="2"/><rect x="581" y="255" width="10" height="10" rx="2"/><rect x="609" y="255" width="10" height="10" rx="2"/>
+          </g>
+
+          <!-- ANNOTATION OVERLAY: Step highlighting A10 and A20 with arrow + labels -->
+          <!-- Highlight hole A10 (col index 9 → x=77+9*28=329) -->
+          <rect x="324" y="86" width="20" height="20" rx="4" fill="none" stroke="oklch(0.72 0.16 190)" stroke-width="2.5"/>
+          <circle cx="334" cy="96" r="5" fill="oklch(0.72 0.16 190)" opacity="0.7"/>
+          <!-- Highlight A20 (col index 19 → x=77+19*28=609) -->
+          <rect x="604" y="86" width="20" height="20" rx="4" fill="none" stroke="oklch(0.72 0.16 190)" stroke-width="2.5"/>
+          <circle cx="614" cy="96" r="5" fill="oklch(0.72 0.16 190)" opacity="0.7"/>
+          <!-- Arrow A10 → A20 -->
+          <line x1="354" y1="96" x2="600" y2="96" stroke="oklch(0.72 0.16 190)" stroke-width="2" stroke-dasharray="6,4"/>
+          <polygon points="600,90 614,96 600,102" fill="oklch(0.72 0.16 190)"/>
+          <!-- Labels -->
+          <rect x="318" y="66" width="32" height="18" rx="3" fill="oklch(0.72 0.16 190)" opacity="0.9"/>
+          <text x="334" y="79" font-family="DM Mono,monospace" font-size="10" fill="oklch(0.10 0.02 245)" text-anchor="middle" font-weight="500">A10</text>
+          <rect x="598" y="66" width="32" height="18" rx="3" fill="oklch(0.72 0.16 190)" opacity="0.9"/>
+          <text x="614" y="79" font-family="DM Mono,monospace" font-size="10" fill="oklch(0.10 0.02 245)" text-anchor="middle" font-weight="500">A20</text>
+          <!-- Resistor component between -->
+          <rect x="400" y="89" width="60" height="14" rx="7" fill="oklch(0.78 0.16 70)" opacity="0.85"/>
+          <text x="430" y="100" font-family="DM Mono,monospace" font-size="9" fill="oklch(0.10 0.02 245)" text-anchor="middle">330Ω</text>
+          <!-- Step message box -->
+          <rect x="60" y="390" width="640" height="40" rx="0" rx="0" fill="oklch(0.10 0.02 245)" opacity="0.92"/>
+          <text x="80" y="415" font-family="DM Mono,monospace" font-size="13" fill="oklch(0.72 0.16 190)">Step 1 · Place the current-limit resistor from A10 to A20</text>
+          <!-- UI chrome top -->
+          <rect x="60" y="60" width="640" height="24" rx="0" fill="oklch(0.13 0.02 245)" opacity="0.9"/>
+          <circle cx="78" cy="72" r="5" fill="oklch(0.72 0.16 190)" opacity="0.6"/>
+          <text x="92" y="77" font-family="DM Mono,monospace" font-size="10" fill="oklch(0.72 0.16 190)" opacity="0.8">circuit-sensei · INSTRUCT · step 1/3</text>
+        </svg>
+      </div>
+      <div class="caption">Simulated annotated guidance overlay — webcam view with highlighted placement holes, component arrow, and step message</div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 6: TECH STACK ────────────────────────────────────── -->
+  <section id="s6" data-label="06 Technology Stack">
+    <div class="eyebrow">Under the Hood</div>
+    <div class="slide-title">Technology Stack</div>
+    <div class="tech-grid">
+      <div class="tech-card accent">
+        <div class="tech-icon">AI</div>
+        <div class="tech-name">Gemini 2.0</div>
+        <div class="tech-role">Agent brain + Vision verification. Parses goals, plans circuits, and inspects webcam frames for correct placement.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">PY</div>
+        <div class="tech-name">Python 3.11</div>
+        <div class="tech-role">Core agent loop, state machine, tool execution, and session management.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">CV</div>
+        <div class="tech-name">OpenCV</div>
+        <div class="tech-role">Webcam capture, frame enhancement, and annotation drawing — holes, arrows, and labels overlaid in real time.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">⚡</div>
+        <div class="tech-name">Arduino</div>
+        <div class="tech-role">USB serial testing after visual verification. Runs voltage divider, LED drive, and button read tests.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">⚛</div>
+        <div class="tech-name">React + Vite</div>
+        <div class="tech-role">Live Camera Feed UI for the frontend — real-time annotated frame display and session control.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">∞</div>
+        <div class="tech-name">State Machine</div>
+        <div class="tech-role">7-state finite machine (IDLE → TEST) with validated transitions. Prevents unsafe Arduino activation before visual sign-off.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#128275;</div>
+        <div class="tech-name">Open Source</div>
+        <div class="tech-role">MIT licensed. Mock mode runs without a Gemini key or hardware — zero-friction for first-time contributors.</div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#128275;</div>
+        <div class="tech-name">pytest</div>
+        <div class="tech-role">State machine, safety response, annotation drawing, coordinate mapping, and mock Arduino paths are all test-covered.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 7: IMPACT ────────────────────────────────────────── -->
+  <section id="s7" data-label="07 Education Impact">
+    <div class="left">
+      <div>
+        <div class="eyebrow">Track Alignment · Light the Way</div>
+        <div class="slide-title" style="font-size: 56px; margin-bottom: 0;">Education<br/>Impact</div>
+      </div>
+      <div style="display:flex; gap: 80px;">
+        <div class="stat-block">
+          <div class="stat-num">0</div>
+          <div class="stat-label">Prior knowledge required</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-num" style="color: var(--amber);">5</div>
+          <div class="stat-label">Verified steps to first LED</div>
+        </div>
+      </div>
+      <div class="body-text" style="font-size: 28px; max-width: 700px;">
+        CircuitSensei lowers the barrier to hands-on electronics education — making physical computing as accessible as a YouTube tutorial.
+      </div>
+    </div>
+    <div class="right">
+      <div class="audience-card">
+        <div class="aud-dot" style="background: var(--teal);"></div>
+        <div>
+          <div class="aud-title">K–12 Students</div>
+          <div class="aud-desc">First breadboard experience without a teacher physically present. Guided, visual, and forgiving of mistakes.</div>
+        </div>
+      </div>
+      <div class="audience-card">
+        <div class="aud-dot" style="background: var(--amber);"></div>
+        <div>
+          <div class="aud-title">University Beginners</div>
+          <div class="aud-desc">Intro ECE and CS students practicing circuits outside lab hours — at home, at any time, with immediate feedback.</div>
+        </div>
+      </div>
+      <div class="audience-card">
+        <div class="aud-dot" style="background: oklch(0.72 0.16 300);"></div>
+        <div>
+          <div class="aud-title">Self-Taught Makers</div>
+          <div class="aud-desc">Hobbyists who want to go beyond blink tutorials and build real circuits with confidence and safety guardrails.</div>
+        </div>
+      </div>
+      <div class="audience-card">
+        <div class="aud-dot" style="background: oklch(0.72 0.16 140);"></div>
+        <div>
+          <div class="aud-title">Low-Resource Classrooms</div>
+          <div class="aud-desc">A webcam + breadboard kit is all that's needed. No expensive lab equipment or dedicated TA time required.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SLIDE 8: NEXT STEPS ────────────────────────────────────── -->
+  <section id="s8" data-label="08 Open Source & What's Next">
+    <div class="eyebrow">Roadmap</div>
+    <div class="slide-title">Open Source &amp; What's Next</div>
+    <div class="next-grid">
+      <div class="next-item">
+        <div class="next-num">01</div>
+        <div>
+          <div class="next-head">Computer Vision Calibration</div>
+          <div class="next-body">Replace manual config.yaml corner mapping with automatic breadboard detection using edge and contour recognition.</div>
+        </div>
+      </div>
+      <div class="next-item">
+        <div class="next-num">02</div>
+        <div>
+          <div class="next-head">Circuit Library</div>
+          <div class="next-body">Curated beginner circuits (555 timer, H-bridge, sensor reads) shipped as prompts — one command to start a guided build.</div>
+        </div>
+      </div>
+      <div class="next-item">
+        <div class="next-num">03</div>
+        <div>
+          <div class="next-head">Web UI Dashboard</div>
+          <div class="next-body">The React frontend (already scaffolded) gets a full session view: live annotated feed, step history, and verification log.</div>
+        </div>
+      </div>
+      <div class="next-item">
+        <div class="next-num">04</div>
+        <div>
+          <div class="next-head">Multi-Board Support</div>
+          <div class="next-body">Extend topology model to Raspberry Pi GPIO, ESP32, and shield stacking — same agentic loop, more hardware.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cta-bar">
+      <div class="cta-main">github.com / CircuitSensei</div>
+      <div class="cta-sub">MIT License · Python 3.11 · Mock mode — no API key required to try it</div>
+    </div>
+  </section>
+
+</deck-stage>
+</body>
+</html>
