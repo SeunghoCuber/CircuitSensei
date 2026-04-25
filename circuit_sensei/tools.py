@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,7 @@ from rich.panel import Panel
 
 from circuit_sensei.hardware.arduino_tester import ArduinoTester, ArduinoUnavailableError
 from circuit_sensei.hardware.camera import CameraCapture, camera_settings_from_config, image_size_from_config
-from circuit_sensei.hardware.overlay import BreadboardGeometry, FrameAnnotator
+from circuit_sensei.hardware.overlay import AnnotationStyle, BreadboardGeometry, FrameAnnotator
 
 
 @dataclass(frozen=True)
@@ -91,19 +92,23 @@ class CircuitSenseiTools:
         self.config = config
         self.console = console or Console()
         hardware = config.get("hardware", {})
+        overlay = config.get("overlay", {})
         paths = config.get("paths", {})
         gemini = config.get("gemini", {})
 
         self.mock_mode = bool(hardware.get("mock_mode", True))
         self.frame_path = str(paths.get("frame_path", "/tmp/sensei_frame.jpg"))
         self.annotated_path = str(paths.get("annotated_path", "/tmp/sensei_annotated.jpg"))
+        self.annotation_source = str(overlay.get("annotation_source", "reference")).lower().strip()
+        self.reference_image_path = str(overlay.get("reference_image_path", "")).strip()
         self.geometry = BreadboardGeometry.from_config(config)
         self.camera = CameraCapture(
             camera_index=int(hardware.get("camera_index", 0)),
             mock_mode=self.mock_mode,
             settings=camera_settings_from_config(config),
+            mock_geometry=self.geometry,
         )
-        self.annotator = FrameAnnotator(self.geometry)
+        self.annotator = FrameAnnotator(self.geometry, AnnotationStyle.from_config(config))
         self.arduino = ArduinoTester(
             port=str(hardware.get("serial_port", "/dev/ttyACM0")),
             baud_rate=int(hardware.get("baud_rate", 115200)),
@@ -145,15 +150,78 @@ class CircuitSenseiTools:
         result = self.camera.capture(self.frame_path, image_size_from_config(self.config))
         return result.__dict__
 
-    def annotate_frame(self, annotations: dict[str, Any]) -> dict[str, Any]:
-        """Draw breadboard placement guidance on the latest captured frame."""
+    @property
+    def annotation_uses_camera(self) -> bool:
+        """Return whether instruction annotations should use a live camera frame."""
+
+        return self.annotation_source == "camera"
+
+    def prepare_annotation_frame(self) -> dict[str, Any]:
+        """Prepare the base image used for instruction annotations."""
+
+        if self.annotation_uses_camera:
+            return self.capture_frame()
 
         frame = Path(self.frame_path)
-        if not frame.exists():
-            self.camera.capture(self.frame_path, image_size_from_config(self.config))
+        source = self.annotation_source
+        if self.reference_image_path:
+            reference = Path(self.reference_image_path).expanduser()
+            if not reference.exists():
+                return {
+                    "ok": False,
+                    "error": f"Reference breadboard image does not exist: {reference}",
+                    "path": str(frame),
+                    "source": "reference",
+                }
+            frame.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(reference, frame)
+            return {
+                "ok": True,
+                "path": str(frame),
+                "message": "Reference breadboard image loaded.",
+                "source": "reference",
+                "reference_image_path": str(reference),
+            }
+
+        result = self.camera.write_reference_frame(frame, image_size_from_config(self.config))
+        data = result.__dict__
+        data["source"] = "reference" if source in {"reference", "generated", "static"} else source
+        return data
+
+    def annotate_frame(self, annotations: dict[str, Any]) -> dict[str, Any]:
+        """Draw breadboard placement guidance on the configured base image."""
+
+        if not self._has_visible_annotation(annotations):
+            return {
+                "ok": False,
+                "error": "No visible annotation data was supplied.",
+                "annotations": annotations,
+                "annotated_path": self.annotated_path,
+            }
+
+        frame = Path(self.frame_path)
+        if not frame.exists() or not self.annotation_uses_camera:
+            prepared = self.prepare_annotation_frame()
+            if not prepared.get("ok"):
+                return {
+                    "ok": False,
+                    "error": prepared.get("error", "Could not prepare annotation frame."),
+                    "annotations": annotations,
+                    "annotated_path": self.annotated_path,
+                    "frame_path": self.frame_path,
+                }
         result = self.annotator.annotate(self.frame_path, self.annotated_path, annotations)
         result["annotations"] = annotations
+        result["source"] = "camera" if self.annotation_uses_camera else "reference"
         return result
+
+    @staticmethod
+    def _has_visible_annotation(annotations: dict[str, Any]) -> bool:
+        return bool(
+            annotations.get("points")
+            or annotations.get("arrows")
+            or str(annotations.get("message", "")).strip()
+        )
 
     def show_annotated_frame(self) -> dict[str, Any]:
         """Display or save the annotated frame for the user."""

@@ -26,13 +26,32 @@ camera:
   # exposure: -4
   # gain: 0
 
+overlay:
+  # "reference" draws guidance on a clean breadboard diagram.
+  # Use "camera" to draw guidance directly on the latest webcam frame.
+  annotation_source: reference
+  reference_image_path: ""
+  point_radius: 20
+  point_inner_radius: 6
+  arrow_thickness: 5
+  node_line_thickness: 7
+  label_padding: 7
+  label_font_scale: 0.58
+  arrow_label_font_scale: 0.56
+  banner_font_scale: 0.72
+  banner_position: top
+  banner_max_lines: 3
+
 paths:
   frame_path: /tmp/sensei_frame.jpg
   annotated_path: /tmp/sensei_annotated.jpg
 
 breadboard:
   image_size: [1280, 720]
-  top_left: [110, 95]
-  bottom_right: [1170, 615]
+  # Standard orientation: row letters A-J run left-to-right, numbered columns
+  # run top-to-bottom on the generated reference breadboard diagram.
+  orientation: standard
+  top_left: [650, 140]       # A1
+  bottom_right: [1095, 650]  # J30
   rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
-  columns: 63
+  columns: 30
