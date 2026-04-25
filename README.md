@@ -1,249 +1,236 @@
 # Circuit-Sensei
 
-An agentic breadboard assistant for electronics engineers, powered by Google Gemini.
+Circuit-Sensei is a working prototype of an agentic breadboard assistant for
+electronics engineers. It takes a circuit goal and component inventory, creates
+a breadboard placement plan, draws guidance directly on a top-down webcam frame,
+uses Gemini Vision to verify each step, and then uses an Arduino over USB serial
+to stimulate and measure the finished circuit.
 
-Circuit-Sensei runs on a host computer, plans a step-by-step breadboard layout,
-highlights target positions on a live USB webcam feed, verifies placements with
-Gemini Vision, and runs automated electrical tests through an Arduino Uno USB
-hardware bridge.
+The first version is mock-first: it runs end-to-end without a webcam, Gemini API
+key, or Arduino. Real hardware mode uses the same agent loop and tools.
 
----
+## What It Does
 
-## Features
+- Accepts a natural-language circuit goal and available component inventory.
+- Plans concise breadboard steps using row/column locations such as `A10`.
+- Captures a webcam frame to `/tmp/sensei_frame.jpg`.
+- Draws highlighted holes, arrows, labels, and step messages onto
+  `/tmp/sensei_annotated.jpg`.
+- Verifies the captured board image with Gemini Vision before advancing.
+- Connects to an Arduino over USB serial after visual verification passes.
+- Runs basic tests such as LED drive checks, voltage divider measurements, and
+  button reads.
 
-- **Natural language input** - describe your circuit goal in plain English
-- **Gemini-powered planning** - calculates component values, shows work
-- **OpenCV overlay guidance** - semi-transparent markers with dotted component
-  outlines highlight target holes on the live camera view
-- **Vision verification** - overhead USB webcam + Gemini Vision checks placements
-- **Automated electrical tests** - Arduino Uno signal injection and voltage reads
-- **Mock mode** - full pipeline runs on any laptop without hardware
+Circuit-Sensei does not use LED strips or physical breadboard guidance LEDs.
+All guidance is visual on-screen annotation over the camera image.
 
----
+## Project Layout
 
-## Hardware Wiring
-
-The Python agent runs on your laptop or desktop.  The Arduino Uno connects over
-USB and acts purely as the hardware abstraction layer.
-
+```text
+CircuitSensei/
+├── circuit_sensei/
+│   ├── main.py
+│   ├── agent.py
+│   ├── tools.py
+│   ├── hardware/
+│   │   ├── camera.py
+│   │   ├── overlay.py
+│   │   └── arduino_tester.py
+│   ├── prompts/
+│   │   └── system_prompt.py
+│   └── arduino/
+│       └── circuit_tester.ino
+├── config.yaml
+├── requirements.txt
+├── README.md
+└── tests/
+    ├── test_state_machine.py
+    ├── test_tools_mock.py
+    └── mock_frame.jpg
 ```
-Arduino Uno
-├── Pin 6  → WS2812B LED strip DATA IN
-├── Pin 9  → Test signal injection point on breadboard
-├── Pin 7  → Digital trigger signal
-├── A0     → Circuit output voltage measurement point
-├── 5V     → Breadboard power rail (+)
-└── GND    → Breadboard power rail (-) + LED strip GND
-```
-
-Use a USB webcam mounted above the breadboard for visual verification and the
-overlay display.
-
-### LED Strip Power
-
-USB current is limited to about 5V/500mA.  A single WS2812B LED can draw up to
-60mA at full white, so 77 LEDs can draw about 4.6A.  Power the full strip from
-an external 5V supply and connect the supply ground to Arduino GND.
-
----
-
-## Arduino Firmware
-
-### Flash the firmware
-
-1. Install Arduino IDE or `arduino-cli`.
-2. Install libraries with the Library Manager, or run:
-
-```bash
-arduino-cli lib install "Adafruit NeoPixel" "ArduinoJson"
-```
-
-3. Compile and upload:
-
-```bash
-arduino-cli compile --fqbn arduino:avr:uno firmware/circuit_sensei
-arduino-cli upload  --fqbn arduino:avr:uno -p /dev/ttyUSB0 firmware/circuit_sensei
-```
-
-### Find the Arduino serial port
-
-Linux/macOS:
-
-```bash
-ls /dev/tty* | grep -i usb
-```
-
-Windows:
-
-```
-Device Manager → Ports (COM & LPT)
-```
-
-Common examples are `/dev/ttyUSB0`, `/dev/cu.usbmodem*`, and `COM3`.
-
----
 
 ## Setup
 
-### 1. Clone and install
+Use Python 3.11 or newer.
 
 ```bash
-git clone https://github.com/your-org/circuit-sensei.git
-cd circuit-sensei
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **Note**: `opencv-python` (not `opencv-python-headless`) is required so that
-> `cv2.imshow` can open the overlay display window.
-
-### 2. Set your Gemini API key
-
-Get a free key at https://aistudio.google.com/.
+For real Gemini mode, set:
 
 ```bash
-export GEMINI_API_KEY=your_key_here
+export GEMINI_API_KEY="your-key"
 ```
 
-Add this to your shell profile to persist across sessions.
-
-### 3. Configure `config.yaml`
-
-| Key | Default | Notes |
-|-----|---------|-------|
-| `mock_mode` | `true` | Set `false` on real hardware |
-| `camera.type` | `opencv` | USB webcam backend |
-| `camera.device` | `0` | OpenCV VideoCapture index |
-| `arduino.port` | `/dev/ttyUSB0` | Use `COM3` on Windows or `/dev/cu.usbmodem*` on macOS |
-| `arduino.baud` | `115200` | Must match the firmware |
-| `arduino.pwm_signal_pin` | `9` | Test signal injection pin |
-| `arduino.voltage_input_pin` | `0` | Analog input A0 for circuit output |
-| `arduino.digital_trigger_pin` | `7` | DC trigger pin |
-| `display.calibration_file` | `calibration.json` | Path to saved homography |
-| `display.marker_radius` | `12` | Overlay circle radius in pixels |
-| `display.fps` | `30` | Display window refresh rate |
-
-### 4. First-time camera calibration
-
-On the first real-hardware run, Circuit-Sensei opens a calibration window and
-asks you to click the four breadboard corners in this order:
-
-```
-1. top-left  (A1)      2. top-right  (A63)
-3. bottom-left (J1)    4. bottom-right (J63)
-```
-
-The computed perspective matrix is saved to `calibration.json`.  To redo
-calibration, delete that file and restart.
-
-### 5. Run
+## Run In Mock Mode
 
 ```bash
-# Mock mode, no hardware needed:
-python main.py
-
-# Real hardware:
-python main.py
-
-# Enable debug logging:
-python main.py --debug
-
-# Custom config path:
-python main.py --config ./config.yaml
+python -m circuit_sensei.main --mock
 ```
 
----
-
-## Viewing the Overlay Window
-
-The overlay window uses `cv2.imshow` on the host computer.  Press `q` inside the
-window to exit.
-
----
-
-## Running in Mock Mode
-
-Set `mock_mode: true` in `config.yaml` (the default).
-
-In mock mode:
-- Overlay commands print marker coordinates to stdout instead of drawing
-- The display window thread logs `DISPLAY: frame updated` each tick instead of
-  calling `cv2.imshow`
-- Camera returns `tests/mock_frame.jpg` (generate it first if needed)
-- Arduino commands are logged and voltage reads return 2.5V
-
-Generate the mock camera frame once:
+Or run a complete mock demo:
 
 ```bash
-python tests/create_mock_frame.py
+python -m circuit_sensei.main \
+  --mock \
+  --goal "blink an LED from an Arduino pin" \
+  --inventory "Arduino Uno, LED, 330 ohm resistor, jumper wires" \
+  --auto-demo
 ```
 
-Then run the full test suite:
+During an interactive run:
+
+- `/next` advances the state machine.
+- `/confirm` manually accepts the current verification step when the webcam or
+  Gemini cannot see enough detail but you personally checked the placement.
+- `/state` prints the current session state.
+- `/quit` exits.
+
+While Circuit-Sensei is waiting in `VERIFY`, normal typed text is treated as a
+question or note to Gemini and does not advance the step. Use `/next` to retry
+vision verification, or `/confirm` to manually advance after checking the
+placement yourself.
+
+After all build steps are verified, `/next` moves into a host-controlled Arduino
+test. Gemini is no longer allowed to create new breadboard placement steps at
+that point, which prevents the workflow from restarting the build plan after the
+circuit is already assembled.
+
+## Real Hardware Mode
+
+Edit `config.yaml`:
+
+```yaml
+hardware:
+  mock_mode: false
+  camera_index: 0
+  serial_port: /dev/ttyACM0
+  baud_rate: 115200
+```
+
+Then run:
 
 ```bash
-pytest tests/ -v
+python -m circuit_sensei.main --real
 ```
 
----
+If `GEMINI_API_KEY` is missing in real mode, the app exits clearly before doing
+anything else.
 
-## Running Tests
+## Webcam And Breadboard Setup
+
+Mount the webcam above the breadboard with a stable top-down view. Keep the
+board edges visible and avoid steep perspective angles. The prototype assumes a
+single standard breadboard area and maps rows `A-J` and columns `1-63`.
+
+The app writes:
+
+- Raw frame: `/tmp/sensei_frame.jpg`
+- Annotated guidance frame: `/tmp/sensei_annotated.jpg`
+
+If webcam capture fails, Circuit-Sensei asks the user to describe the placement
+manually instead of advancing blindly.
+
+## Calibration
+
+Manual calibration lives in `config.yaml`:
+
+```yaml
+breadboard:
+  image_size: [1280, 720]
+  top_left: [110, 95]
+  bottom_right: [1170, 615]
+  rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+  columns: 63
+```
+
+`top_left` and `bottom_right` are pixel coordinates for the usable breadboard
+hole grid in the camera image. Circuit-Sensei linearly interpolates approximate
+hole positions from those two points. This is intentionally hackathon-friendly,
+not a full computer-vision calibration system.
+
+## Arduino Wiring Assumptions
+
+The Arduino remains inactive until the final visual verification passes. When a
+test is needed, Circuit-Sensei instructs the user which circuit nodes should
+connect to Arduino pins, for example:
+
+- `D9` as a digital or PWM test source.
+- `A0` as an analog measurement input.
+- `GND` as the common reference.
+
+Do not power a circuit from Arduino outputs until Circuit-Sensei reaches
+`VERIFY_COMPLETE`.
+
+## Arduino Serial Protocol
+
+Flash `circuit_sensei/arduino/circuit_tester.ino` to the Arduino. The sketch
+uses one JSON-like command per serial line at `115200` baud.
+
+Examples:
+
+```json
+{"cmd":"SET_DIGITAL","pin":9,"value":1}
+{"cmd":"SET_PWM","pin":9,"value":128}
+{"cmd":"READ_DIGITAL","pin":2}
+{"cmd":"READ_ANALOG","pin":"A0"}
+{"cmd":"RUN_TEST","test_type":"voltage_divider","pin":"A0"}
+```
+
+Example response:
+
+```json
+{"status":"ok","value":2.480,"unit":"V"}
+```
+
+Supported test types in the sketch:
+
+- `voltage_divider`
+- `led`
+- `button`
+
+## Safety Behavior
+
+If the user mentions smoke, heat, burning, or melting, the app immediately
+starts its response with:
+
+```text
+⚠️ DISCONNECT POWER NOW
+```
+
+## Example Transcript
+
+```text
+$ python -m circuit_sensei.main --mock
+You: Goal: blink an LED from an Arduino pin
+Inventory: Arduino Uno, LED, 330 ohm resistor, jumper wires
+Circuit-Sensei: Tell me the circuit goal and available components.
+
+You: /next
+Circuit-Sensei: Great. I have the goal and inventory. I will derive a compact breadboard plan next.
+
+You: /next
+Circuit-Sensei: For an LED on 5 V, R = (5 V - about 2 V) / 5-10 mA...
+Placement plan:
+1. With power disconnected, place the current-limit resistor from A10 to A20.
+2. Place the LED anode at E20 and cathode at E25.
+3. With Arduino outputs still inactive, connect D9 to column 10 and GND to column 25.
+
+You: /next
+Circuit-Sensei: With power disconnected, place the current-limit resistor from A10 to A20.
+```
+
+The annotated image for that step is saved to `/tmp/sensei_annotated.jpg`.
+
+## Tests
 
 ```bash
-pytest tests/ -v
-pytest tests/test_state_machine.py -v
-pytest tests/test_tools_mock.py -v
+pytest
 ```
 
-All tests use mocked hardware and mocked Gemini calls.  No API key or physical
-hardware is required to run the test suite.
-
----
-
-## Architecture
-
-```
-main.py               CLI REPL + argument parsing
-agent.py              AgentSession dataclass, state machine, Gemini tool-call loop
-tools.py              Seven tool implementations + FunctionDeclarations + dispatch
-display/
-  calibration.py      One-time 4-corner click -> perspective transform matrix
-  overlay.py          OverlayMarker dataclass + Overlay renderer
-  window.py           Background cv2.imshow thread + banner renderer
-hardware/
-  arduino.py          Host-side JSON-over-serial Arduino interface
-  camera.py           OpenCV USB webcam capture (+ mock)
-  tester.py           Test runner for tests/circuits/ modules
-firmware/
-  circuit_sensei/
-    circuit_sensei.ino  Arduino Uno firmware
-prompts/
-  system_prompt.py    Gemini system prompt with state injection
-tests/
-  test_state_machine.py
-  test_tools_mock.py
-  circuits/
-    low_pass_filter.py
-    voltage_divider.py
-  create_mock_frame.py
-config.yaml           Camera, Arduino, display, and Gemini settings
-```
-
----
-
-## Notes and Caveats
-
-- **Arduino PWM frequency**: `analogWrite` on pin 9 produces a fixed roughly
-  490Hz PWM signal.  Swept-frequency tests need a Timer1 firmware extension.
-- **Analog input range**: Arduino Uno analog pins read 0-5V with a 10-bit ADC.
-  Do not feed A0 more than 5V.
-- **Calibration required on first run**: Real hardware needs
-  `calibration.json` before overlay markers can be positioned correctly.
-- **opencv-python vs opencv-python-headless**: The full `opencv-python` package
-  is required because `cv2.imshow` is not available in the headless build.
-- **No LangChain / LangGraph**: The agent loop is built directly on the
-  `google-genai` Python SDK for transparency and minimal dependencies.
-
----
-
-## License
-
-MIT -- see LICENSE.
+The tests exercise the state parser, emergency safety response, mock frame
+capture, annotation drawing, breadboard coordinate mapping, and mock Arduino
+test path.
