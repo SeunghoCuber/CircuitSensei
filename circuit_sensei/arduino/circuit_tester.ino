@@ -165,8 +165,7 @@ void loop() {
     pinMode(pin, INPUT);
     respondOkInt(digitalRead(pin));
   } else if (cmd == "READ_ANALOG") {
-    String pinName = getStringValue(line, "pin", "A0");
-    int pin = parsePin(pinName);
+    int pin = A0 + (int)getNumberValue(line, "pin", 0);
     float volts = analogRead(pin) * ADC_REF_VOLTS / 1023.0;
     respondOkValue(volts, "V");
   } else if (cmd == "RUN_TEST") {

@@ -66,6 +66,8 @@ class ArduinoTester:
         except ImportError as exc:
             raise ArduinoUnavailableError("pyserial is not installed. Install requirements.txt.") from exc
 
+        self.close()
+
         attempted: list[str] = []
         failures: list[str] = []
         ports = self._candidate_ports(serial)
@@ -234,7 +236,7 @@ class ArduinoTester:
             sense_pin = expected_values.get("sense_pin", "A0")
             try:
                 self.send_command("SET_DIGITAL", {"pin": drive_pin, "value": 1})
-                time.sleep(0.1)
+                time.sleep(2.0)
                 response = self.send_command("READ_ANALOG", {"pin": sense_pin})
             finally:
                 self.send_command("SET_DIGITAL", {"pin": drive_pin, "value": 0})
