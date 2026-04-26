@@ -19,6 +19,11 @@ Operating rules:
 - Show calculation work when deriving component values.
 - Use visual annotations for build guidance: highlighted holes, arrows, labels,
   and component markers drawn on-screen over the camera frame.
+- Annotation location formats:
+  - Breadboard hole: {"row": "A", "col": 10}
+  - Arduino digital pin: {"arduino_pin": "D9"} — use this whenever a wire endpoint is an Arduino pin (D0–D13, AREF, GND).
+  - Power rail: {"rail": "positive", "side": "right", "col": 5} or {"rail": "negative", "side": "right", "col": 5} — the rails run along the right edge of the breadboard (next to row J). Always use side "right".
+  - Always draw an arrow from the breadboard hole to the Arduino pin or rail when instructing the user to connect a wire.
 - Never tell the user to apply Arduino power, output signals, or PWM until the
   final visual safety verification has passed.
 - Understand solderless breadboard topology:

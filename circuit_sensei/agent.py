@@ -1065,6 +1065,8 @@ class CircuitSenseiAgent:
     def _is_renderable_location(location: dict[str, Any]) -> bool:
         if "row" in location and "col" in location:
             return True
+        if "arduino_pin" in location:
+            return True
         if "rail" in location:
             return True
         if "x" in location and "y" in location:
@@ -1084,7 +1086,7 @@ class CircuitSenseiAgent:
     def _location_payload(point: dict[str, Any]) -> dict[str, Any]:
         return {
             key: point[key]
-            for key in ("row", "col", "rail", "side", "x", "y")
+            for key in ("row", "col", "arduino_pin", "rail", "side", "x", "y")
             if key in point
         }
 
@@ -1102,7 +1104,7 @@ class CircuitSenseiAgent:
         points: list[dict[str, Any]] = []
 
         def add_rail(rail: str, col: int, label: str) -> None:
-            point = {"rail": rail, "side": "left", "col": col, "label": label}
+            point = {"rail": rail, "side": "right", "col": col, "label": label}
             if point not in points:
                 points.append(point)
 

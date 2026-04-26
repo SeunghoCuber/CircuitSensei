@@ -64,3 +64,29 @@ breadboard:
   row_x_positions: [1425, 1470, 1515, 1560, 1605, 1750, 1790, 1830, 1875, 1920]
   rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
   columns: 30
+  # Power rail pixel x-positions (measured from image; rails are right of row J).
+  right_rail_positive_x: 2028   # red (+) strip
+  right_rail_negative_x: 2133   # blue (-) strip
+
+# Arduino Uno pin pixel coordinates in the reference image (x=1295 = digital header).
+# Pins run top-to-bottom: AREF, GND, D13 … D0.
+arduino:
+  pins:
+    AREF: [1295, 100]
+    GND:  [1295, 145]
+    D13:  [1295, 189]
+    D12:  [1295, 235]
+    D11:  [1295, 279]
+    D10:  [1295, 368]
+    D9:   [1295, 413]
+    D8:   [1295, 458]
+    D7:   [1295, 502]
+    D6:   [1295, 547]
+    D5:   [1295, 637]
+    D4:   [1295, 681]
+    D3:   [1295, 726]
+    D2:   [1295, 771]
+    D1:   [1295, 816]
+    TX:   [1295, 816]
+    D0:   [1295, 905]
+    RX:   [1295, 905]
