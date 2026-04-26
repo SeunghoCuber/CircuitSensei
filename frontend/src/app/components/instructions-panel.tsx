@@ -64,7 +64,7 @@ export function InstructionsPanel({ plan, currentStep, verifiedSteps, agentState
           )}
 
           {/* Step list */}
-          <div className="flex-1 overflow-y-auto space-y-1.5">
+          <div className="flex-1 overflow-y-auto no-scrollbar space-y-1.5">
             {plan.map((step, idx) => {
               const verified = isVerified(step);
               const active = isCurrent(idx) && !verified;

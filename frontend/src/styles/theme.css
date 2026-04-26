@@ -184,3 +184,10 @@
 .bg-zinc-900 [class~="text-sm"]:not([class*="text-zinc"]):not([class*="text-white"]):not([class*="text-emerald"]):not([class*="text-red"]):not([class*="text-blue"]):not([class*="text-yellow"]):not([class*="text-purple"]) {
   color: #e4e4e7;
 }
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

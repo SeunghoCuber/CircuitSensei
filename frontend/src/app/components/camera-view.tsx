@@ -157,7 +157,7 @@ export function CameraView({
       </div>
 
       <div className="flex-1 flex flex-col min-h-0 gap-3">
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+        <div className="flex-1 overflow-y-auto no-scrollbar space-y-2 pr-1">
           {displayed.length === 0 && !isLoading && (
             <div className="text-xs text-zinc-600 text-center py-10">
               Tell the agent your goal to get started.
