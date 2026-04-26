@@ -134,10 +134,22 @@ question or note to Gemini and does not advance the step. Use `next` or `/next`
 to retry vision verification, or `confirm` or `/confirm` to manually advance
 after checking the placement yourself.
 
-After all build steps are verified, `next` moves into a host-controlled Arduino
-test. Gemini is no longer allowed to create new breadboard placement steps at
-that point, which prevents the workflow from restarting the build plan after the
-circuit is already assembled.
+Plans can interleave physical build steps with Arduino tests. Each plan item
+declares a `kind`: `build` (default) for a physical placement that goes through
+INSTRUCT/VERIFY, or `arduino_test` for an electrical check that runs in TEST
+between build steps. After a planned test passes, the workflow advances to the
+next plan item — Arduino testing is no longer a single terminal phase.
+
+If the user reports unexpected behavior mid-build (for example "nothing
+happened", "the LED is dim", "I see 0V", "different than expected"),
+Circuit-Sensei runs a one-off diagnostic Arduino test and then resumes the
+exact build state and step it was in, without resetting verified progress.
+
+When all build steps are verified and no more planned tests remain, Gemini is
+no longer allowed to create new breadboard placement steps, which prevents the
+workflow from restarting the build plan after the circuit is already assembled.
+For backwards compatibility, plans that contain no `arduino_test` items still
+trigger one terminal Arduino test after the final visual verification passes.
 
 ## Optional CLI
 
@@ -315,6 +327,21 @@ Supported test types in the sketch:
 - `voltage_divider`
 - `led`
 - `button`
+
+Plan items can specify any of these as `test_type` along with `expected_values`
+parameters such as `expected_voltage`, `tolerance`, `drive_pin`, `sense_pin`,
+or `pin`. Example interleaved plan item:
+
+```json
+{
+  "step": 3,
+  "kind": "arduino_test",
+  "title": "LED drive test",
+  "test_type": "led",
+  "expected_values": {"drive_pin": 9, "sense_pin": "A0"},
+  "description": "Drive D9 high and confirm the LED node sees the forward voltage."
+}
+```
 
 ## Safety Behavior
 
