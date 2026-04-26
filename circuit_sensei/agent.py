@@ -141,7 +141,7 @@ HOLE_REF_RE = re.compile(r"\b([A-Ja-j])\s*([1-9][0-9]?)\b")
 COLUMN_REF_RE = re.compile(r"\bcol(?:umn)?s?\.?\s*([1-9][0-9]?)\b", re.IGNORECASE)
 ARDUINO_PIN_RE = re.compile(r"\b(?:a|d)(?:0|[1-9][0-3]?)\b", re.IGNORECASE)
 ARDUINO_ENDPOINT_RE = re.compile(
-    r"\b(?:D(?:0|[1-9]|1[0-3])|A[0-5]|AREF|IOREF|RESET|VIN|GND|GROUND|3V3|3\.3\s*V|5\s*V|RX|TX|SDA|SCL)\b",
+    r"\b(?:D(?:0|[1-9]|1[0-3])|A[0-5]|AREF|IOREF|RESET|VIN|GND2|GND|GROUND|3V3|3\.3\s*V|5\s*V|RX|TX|SDA|SCL)\b",
     re.IGNORECASE,
 )
 
@@ -149,6 +149,7 @@ ARDUINO_PIN_ALIASES = {
     "3.3V": "3V3",
     "3V3": "3V3",
     "5V": "5V",
+    "GND2": "GND2",
     "GND": "GND",
     "GROUND": "GND",
     "RX": "D0",

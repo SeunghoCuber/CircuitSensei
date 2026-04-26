@@ -224,6 +224,22 @@ def test_production_arduino_digital_header_calibration() -> None:
     assert pins["D8"] == (913, 912)
 
 
+def test_production_arduino_power_and_analog_header_calibration() -> None:
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    pins = BreadboardGeometry.from_config(config).arduino_pins
+
+    assert pins["IOREF"] == (63, 716)
+    assert pins["RESET"] == (63, 761)
+    assert pins["3V3"] == (63, 805)
+    assert pins["5V"] == (63, 850)
+    assert pins["GND"] == (63, 895)
+    assert pins["GND2"] == (63, 940)
+    assert pins["VIN"] == (63, 984)
+    assert pins["A0"] == (63, 1074)
+    assert pins["A5"] == (63, 1298)
+
+
 def _config(tmp_path):
     return {
         "gemini": {"model": "gemini-2.5-flash", "vision_model": "gemini-2.5-flash", "retries": 1},
