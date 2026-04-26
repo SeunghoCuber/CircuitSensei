@@ -6,11 +6,13 @@ import { InstructionsPanel } from "./components/instructions-panel";
 import { ControlPanel } from "./components/control-panel";
 import { StatusBar } from "./components/status-bar";
 import { MockDemoDisclaimer } from "./components/mock-demo-disclaimer";
+import { NetlistModal } from "./components/netlist-modal";
 import { useAgentSocket } from "./hooks/use-agent-socket";
 
 export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+  const [netlistOpen, setNetlistOpen] = useState(false);
   const {
     connected,
     isLoading,
@@ -36,7 +38,11 @@ export default function App() {
 
   return (
     <div className="size-full flex flex-col bg-zinc-950 text-zinc-100">
-      <StatusBar agentState={agentState} onToggleDrawer={() => setDrawerOpen(!drawerOpen)} />
+      <StatusBar
+        agentState={agentState}
+        onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
+        onShowNetlist={() => setNetlistOpen(true)}
+      />
 
       <div className="flex-1 flex gap-4 p-4 overflow-hidden">
         <div className="flex-1 flex flex-col gap-4 min-w-0">
@@ -73,6 +79,7 @@ export default function App() {
 
       <AgentDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} agentState={agentState} />
       <MockDemoDisclaimer open={disclaimerOpen} onClose={() => setDisclaimerOpen(false)} />
+      <NetlistModal open={netlistOpen} onClose={() => setNetlistOpen(false)} />
     </div>
   );
 }

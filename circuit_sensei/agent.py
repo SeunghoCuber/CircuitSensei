@@ -492,6 +492,164 @@ def breadboard_node(row: str, col: int) -> tuple[str, int]:
     return normalized, col
 
 
+_NETLIST_VALUE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(k|m|u|µ|n|p)?\s*(?:Ω|ohm|ohms|f|farad|h|henry)?",
+    re.IGNORECASE,
+)
+
+
+def _netlist_node_name(endpoint: Any) -> str | None:
+    """Return a stable net label for a plan annotation endpoint."""
+
+    if not isinstance(endpoint, dict):
+        return None
+    pin = endpoint.get("arduino_pin")
+    if pin:
+        return str(pin).upper()
+    rail = endpoint.get("rail")
+    if rail:
+        rail_name = str(rail).strip().lower()
+        if rail_name.startswith("pos") or rail_name in {"+", "vcc", "5v", "3v3"}:
+            return "VCC_RAIL"
+        if rail_name.startswith("neg") or rail_name in {"-", "gnd", "ground"}:
+            return "GND_RAIL"
+        return f"RAIL_{rail_name.upper()}"
+    row = endpoint.get("row")
+    col = endpoint.get("col")
+    if row is None or col is None:
+        return None
+    try:
+        col_int = int(col)
+    except (TypeError, ValueError):
+        return None
+    bank, _ = breadboard_node(str(row), col_int)
+    if bank == "top":
+        return f"N_T{col_int}"
+    if bank == "bottom":
+        return f"N_B{col_int}"
+    return f"N_{str(row).upper()}{col_int}"
+
+
+def _classify_component(text: str, label: str) -> str:
+    """Return a netlist prefix (R/D/C/S/U) or 'W' for plain jumper wires."""
+
+    blob = f"{text} {label}".lower()
+    # Strip breadboard hole references (e.g. "c20", "e15") so they don't trip
+    # the R\d+/C\d+ ref-designator regexes below.
+    stripped = re.sub(r"\b[a-j]\d+\b", " ", blob)
+    if "led" in blob or "diode" in blob:
+        return "D"
+    if "resistor" in blob or re.search(r"\br\d+\b", stripped):
+        return "R"
+    if "capacitor" in blob or re.search(r"\bc\d+\b", stripped):
+        return "C"
+    if "transistor" in blob:
+        return "Q"
+    if "button" in blob or "switch" in blob:
+        return "S"
+    if any(token in blob for token in ("jumper", "wire", "lead", "rail")):
+        return "W"
+    if re.search(r"\bconnect(?:ion|s|ing|ed)?\b", blob) or any(
+        token in blob for token in ("gnd", "5v", "3v3", "vcc")
+    ):
+        return "W"
+    return "U"
+
+
+def _component_value(text: str, components: list[str], prefix: str) -> str:
+    """Return a best-effort SPICE-style value or descriptor for a component."""
+
+    blob = text.lower()
+    if prefix == "R":
+        for source in (blob, " ".join(components).lower()):
+            match = re.search(r"(\d+(?:\.\d+)?)\s*(k|m)?\s*(?:Ω|ohm|ohms)\b", source, re.IGNORECASE)
+            if match:
+                value = match.group(1)
+                suffix = (match.group(2) or "").lower()
+                if suffix == "k":
+                    return f"{value}k"
+                if suffix == "m":
+                    return f"{value}meg"
+                return value
+    if prefix == "D":
+        return "LED"
+    if prefix == "C":
+        return "?"
+    return ""
+
+
+def generate_netlist(
+    circuit_goal: str,
+    components: list[str] | None,
+    placement_plan: list[dict[str, Any]] | None,
+) -> str:
+    """Render a best-effort SPICE-like netlist from the current plan."""
+
+    header = ["* Circuit-Sensei generated netlist"]
+    if circuit_goal:
+        header.append(f"* Goal: {circuit_goal}")
+    if components:
+        header.append("* Components:")
+        for item in components:
+            header.append(f"*   - {item}")
+
+    if not placement_plan:
+        return "\n".join(header + ["*", "* No circuit plan available yet."])
+
+    body: list[str] = ["*"]
+    counters: dict[str, int] = {}
+    seen_edges: set[frozenset[str]] = set()
+
+    for step in placement_plan:
+        if not isinstance(step, dict):
+            continue
+        if is_test_plan_item(step):
+            title = str(step.get("title") or step.get("test_type") or "test").strip()
+            test_type = str(step.get("test_type", "")).strip()
+            body.append(f"* Test step: {title} ({test_type})" if test_type else f"* Test step: {title}")
+            continue
+
+        title = str(step.get("title", ""))
+        instruction = str(step.get("instruction", ""))
+        text = f"{title} {instruction}"
+        annotations = step.get("annotations") if isinstance(step.get("annotations"), dict) else {}
+        arrows = annotations.get("arrows", []) if isinstance(annotations, dict) else []
+        if not isinstance(arrows, list) or not arrows:
+            body.append(f"* Step {step.get('step', '?')}: {title or instruction} (no inferable connections)")
+            continue
+
+        emitted_for_step = False
+        for arrow in arrows:
+            if not isinstance(arrow, dict):
+                continue
+            n_from = _netlist_node_name(arrow.get("from"))
+            n_to = _netlist_node_name(arrow.get("to"))
+            if not n_from or not n_to or n_from == n_to:
+                continue
+            edge_key = frozenset({n_from, n_to})
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+
+            label = str(arrow.get("label", ""))
+            prefix = _classify_component(text, label)
+            counters[prefix] = counters.get(prefix, 0) + 1
+            ref = f"{prefix}{counters[prefix]}"
+            value = _component_value(text, components or [], prefix)
+            line = f"{ref} {n_from} {n_to}".strip()
+            if value:
+                line = f"{line} {value}"
+            comment = title.strip() or instruction.strip()
+            if comment:
+                line = f"{line}  ; {comment}"
+            body.append(line)
+            emitted_for_step = True
+        if not emitted_for_step:
+            body.append(f"* Step {step.get('step', '?')}: {title or instruction} (no inferable connections)")
+
+    return "\n".join(header + body)
+
+
 def equivalent_holes(row: str, col: int) -> list[tuple[str, int]]:
     """Return other holes electrically common with ``row``/``col``."""
 

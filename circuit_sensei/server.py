@@ -15,7 +15,13 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from circuit_sensei.agent import AgentSession, CircuitSenseiAgent, SessionState, create_model_client
+from circuit_sensei.agent import (
+    AgentSession,
+    CircuitSenseiAgent,
+    SessionState,
+    create_model_client,
+    generate_netlist,
+)
 from circuit_sensei.hardware.arduino_tester import normalize_serial_port
 from circuit_sensei.hardware.camera import image_size_from_config
 from circuit_sensei.hardware.overlay import BreadboardGeometry
@@ -191,6 +197,22 @@ async def get_state() -> dict[str, Any]:
         **session.snapshot(),
         "mock_mode": agent.tools.mock_mode,
         "vision_mock_mode": agent.tools.vision.mock_mode,
+    }
+
+
+@app.get("/api/netlist")
+async def get_netlist() -> dict[str, Any]:
+    """Return a best-effort SPICE-like netlist for the current placement plan."""
+
+    netlist = generate_netlist(
+        session.circuit_goal,
+        session.components,
+        session.placement_plan,
+    )
+    return {
+        "netlist": netlist,
+        "has_plan": bool(session.placement_plan),
+        "circuit_goal": session.circuit_goal,
     }
 
 

@@ -1,12 +1,13 @@
-import { Cpu, Wifi, PanelRight } from "lucide-react";
+import { Cpu, Wifi, PanelRight, FileCode2 } from "lucide-react";
 import { Button } from "./ui/button";
 
 interface StatusBarProps {
   agentState: string;
   onToggleDrawer: () => void;
+  onShowNetlist: () => void;
 }
 
-export function StatusBar({ agentState, onToggleDrawer }: StatusBarProps) {
+export function StatusBar({ agentState, onToggleDrawer, onShowNetlist }: StatusBarProps) {
   return (
     <div className="h-14 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between px-6">
       <div className="flex items-center gap-3">
@@ -33,6 +34,16 @@ export function StatusBar({ agentState, onToggleDrawer }: StatusBarProps) {
           }`} />
           <span className="capitalize">{agentState}</span>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-300 hover:text-zinc-950"
+          onClick={onShowNetlist}
+        >
+          <FileCode2 className="size-4 mr-2" />
+          Netlist
+        </Button>
 
         <Button
           variant="outline"
