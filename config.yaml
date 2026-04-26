@@ -47,7 +47,6 @@ elevenlabs:
   # Get your voice_id from elevenlabs.io/app/voice-lab
   voice_id: "UgBBYS2sOqTuMpoF3BR0"
   tts_model: "eleven_turbo_v2_5"      # lowest latency (~400ms)
-  stt_model: "scribe_v1"
 
 paths:
   frame_path: /tmp/sensei_frame.jpg

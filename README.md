@@ -8,8 +8,9 @@ each step with Gemini Vision, and then uses an Arduino over USB serial to
 stimulate and measure the finished circuit.
 
 The frontend provides the live workbench UI: camera preview, annotated
-breadboard image, step list, agent chat, and voice controls. Speech-to-text and
-text-to-speech are proxied through the backend using the ElevenLabs API.
+breadboard image, step list, agent chat, and voice controls. Speech-to-text uses
+the browser's built-in Web Speech API, while text-to-speech is proxied through
+the backend using the ElevenLabs API.
 
 The project is still mock-friendly: it can run end-to-end without a webcam,
 Gemini API key, ElevenLabs API key, or Arduino by starting the backend with
@@ -21,7 +22,7 @@ loop, and tools.
 - Accepts a natural-language circuit goal and available component inventory.
 - Accepts typed chat or microphone input from the frontend.
 - Streams agent messages and session state to the UI over a WebSocket.
-- Uses ElevenLabs STT to transcribe microphone recordings.
+- Uses the browser Web Speech API to transcribe microphone input.
 - Uses ElevenLabs TTS to speak agent responses.
 - Plans concise breadboard steps using row/column locations such as `A10`.
 - Captures a webcam frame to `/tmp/sensei_frame.jpg`.
@@ -84,7 +85,7 @@ cd frontend
 npm install
 ```
 
-For real Gemini mode, set `GEMINI_API_KEY`. For voice input/output, set
+For real Gemini mode, set `GEMINI_API_KEY`. For ElevenLabs voice output, set
 `ELEVENLABS_API_KEY`:
 
 ```bash
@@ -92,9 +93,9 @@ export GEMINI_API_KEY="your-key"
 export ELEVENLABS_API_KEY="your-key"
 ```
 
-`ELEVENLABS_API_KEY` is optional. Without it, typed chat still works; the backend
-returns no audio for TTS and an empty transcript for STT. The ElevenLabs voice
-and model IDs live in `config.yaml` under `elevenlabs`.
+`ELEVENLABS_API_KEY` is optional. Without it, typed chat and browser speech input
+still work; the backend returns no audio for TTS. The ElevenLabs voice and TTS
+model IDs live in `config.yaml` under `elevenlabs`.
 
 ## Run The Web App
 
@@ -123,8 +124,8 @@ In the web UI:
 - Type `next`, `continue`, or `/next` to advance or retry the current state.
 - Type `confirm`, `looks good`, or `/confirm` to manually accept the current
   placement when you have checked it yourself.
-- Hold the Speak button to record audio. The backend sends the recording to
-  ElevenLabs STT, then forwards the transcript to the agent.
+- Hold the Speak button to use the browser's speech recognition, then forward
+  the transcript to the agent.
 - Agent responses are sent to ElevenLabs TTS and played in the browser when
   `ELEVENLABS_API_KEY` is set.
 
