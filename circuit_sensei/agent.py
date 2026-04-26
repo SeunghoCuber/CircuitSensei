@@ -117,6 +117,20 @@ COMPONENTS_BLOCK_RE = re.compile(r"%%COMPONENTS_JSON%%\s*(\[.*?\])\s*%%ENDCOMPON
 HOLE_REF_RE = re.compile(r"\b([A-Ja-j])\s*([1-9][0-9]?)\b")
 COLUMN_REF_RE = re.compile(r"\bcol(?:umn)?s?\.?\s*([1-9][0-9]?)\b", re.IGNORECASE)
 ARDUINO_PIN_RE = re.compile(r"\b(?:a|d)(?:0|[1-9][0-3]?)\b", re.IGNORECASE)
+ARDUINO_ENDPOINT_RE = re.compile(
+    r"\b(?:D(?:0|[1-9]|1[0-3])|A[0-5]|AREF|IOREF|RESET|VIN|GND|GROUND|3V3|3\.3\s*V|5\s*V|RX|TX)\b",
+    re.IGNORECASE,
+)
+
+ARDUINO_PIN_ALIASES = {
+    "3.3V": "3V3",
+    "3V3": "3V3",
+    "5V": "5V",
+    "GND": "GND",
+    "GROUND": "GND",
+    "RX": "D0",
+    "TX": "D1",
+}
 
 WIRE_HINT_TOKENS = (
     "wire",
@@ -218,9 +232,29 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
                 "verification": "Verify A0 reaches C20, D9 reaches B10, and GND reaches C30. These use free holes on the same nodes as the divider.",
                 "annotations": {
                     "points": [
+                        {"arduino_pin": "A0", "label": "A0"},
                         {"row": "C", "col": 20, "label": "A0 sense"},
+                        {"arduino_pin": "D9", "label": "D9"},
                         {"row": "B", "col": 10, "label": "D9 test source"},
+                        {"arduino_pin": "GND", "label": "GND"},
                         {"row": "C", "col": 30, "label": "GND"},
+                    ],
+                    "arrows": [
+                        {
+                            "from": {"arduino_pin": "A0"},
+                            "to": {"row": "C", "col": 20},
+                            "label": "A0 jumper",
+                        },
+                        {
+                            "from": {"arduino_pin": "D9"},
+                            "to": {"row": "B", "col": 10},
+                            "label": "D9 jumper",
+                        },
+                        {
+                            "from": {"arduino_pin": "GND"},
+                            "to": {"row": "C", "col": 30},
+                            "label": "GND jumper",
+                        },
                     ],
                     "message": "Wire Arduino test leads: A0 to C20, D9 to B10, GND to C30.",
                 },
@@ -275,8 +309,22 @@ def build_builtin_plan(circuit_goal: str) -> list[dict[str, Any]]:
             "verification": "Verify D9 reaches column 10 and GND reaches column 25; no power has been applied yet.",
             "annotations": {
                 "points": [
+                    {"arduino_pin": "D9", "label": "D9"},
                     {"row": "J", "col": 10, "label": "D9"},
+                    {"arduino_pin": "GND", "label": "GND"},
                     {"row": "J", "col": 25, "label": "GND"},
+                ],
+                "arrows": [
+                    {
+                        "from": {"arduino_pin": "D9"},
+                        "to": {"row": "J", "col": 10},
+                        "label": "D9 jumper",
+                    },
+                    {
+                        "from": {"arduino_pin": "GND"},
+                        "to": {"row": "J", "col": 25},
+                        "label": "GND jumper",
+                    },
                 ],
                 "message": "Connect test leads: D9 to column 10, GND to column 25.",
             },
@@ -861,6 +909,7 @@ class CircuitSenseiAgent:
         """Return visible annotations, deriving simple hole markers when needed."""
 
         annotations = dict(step.get("annotations", {})) if isinstance(step.get("annotations"), dict) else {}
+        annotations = self._complete_connection_annotations(annotations, step)
         if self._has_renderable_annotations(annotations):
             annotations.setdefault("message", step.get("instruction", ""))
             return self._attach_carryover_wires(annotations)
@@ -920,6 +969,117 @@ class CircuitSenseiAgent:
 
         annotations.setdefault("message", str(step.get("instruction", "")).strip())
         return self._attach_carryover_wires(annotations)
+
+    def _complete_connection_annotations(
+        self,
+        annotations: dict[str, Any],
+        step: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Ensure wiring steps include both source and destination endpoints."""
+
+        source = self._annotation_source_text(step, annotations)
+        if not self._looks_like_wiring_text(source):
+            return annotations
+
+        arduino_points = self._derive_arduino_pin_points(source)
+        if not arduino_points:
+            return annotations
+
+        points = [point for point in annotations.get("points", []) if isinstance(point, dict)]
+        target_points = [point for point in points if self._is_renderable_location(point) and "arduino_pin" not in point]
+
+        if not target_points:
+            target_points = self._derive_breadboard_target_points(source)
+
+        if not target_points:
+            return annotations
+
+        updated_points = list(points)
+        for point in arduino_points + target_points:
+            self._append_unique_location(updated_points, point)
+        annotations["points"] = updated_points
+
+        arrows = [arrow for arrow in annotations.get("arrows", []) if isinstance(arrow, dict)]
+        pair_count = min(len(arduino_points), len(target_points))
+        if pair_count == 0:
+            return annotations
+
+        for index in range(pair_count):
+            arrow = {
+                "from": self._location_payload(arduino_points[index]),
+                "to": self._location_payload(target_points[index]),
+                "label": str(target_points[index].get("label") or arduino_points[index].get("label") or "jumper"),
+            }
+            if not self._has_equivalent_arrow(arrows, arrow):
+                arrows.append(arrow)
+        annotations["arrows"] = arrows
+        return annotations
+
+    @staticmethod
+    def _annotation_source_text(step: dict[str, Any], annotations: dict[str, Any]) -> str:
+        return " ".join(
+            str(value)
+            for value in (
+                step.get("title", ""),
+                step.get("instruction", ""),
+                step.get("verification", ""),
+                annotations.get("message", ""),
+            )
+            if value
+        )
+
+    def _derive_breadboard_target_points(self, text: str) -> list[dict[str, Any]]:
+        holes: list[dict[str, Any]] = []
+        for match in HOLE_REF_RE.finditer(text):
+            row, col_text = match.groups()
+            if ARDUINO_ENDPOINT_RE.fullmatch(f"{row}{col_text}"):
+                continue
+            point = {"row": row.upper(), "col": int(col_text), "label": f"{row.upper()}{int(col_text)}"}
+            self._append_unique_location(holes, point)
+
+        if not holes:
+            for col in self._extract_column_refs(text):
+                self._append_unique_location(holes, {"row": "J", "col": col, "label": f"J{col}"})
+
+        rail_points = self._derive_rail_points(text)
+        for point in rail_points:
+            self._append_unique_location(holes, point)
+        return holes
+
+    @staticmethod
+    def _derive_arduino_pin_points(text: str) -> list[dict[str, Any]]:
+        points: list[dict[str, Any]] = []
+        for match in ARDUINO_ENDPOINT_RE.findall(text):
+            pin = CircuitSenseiAgent._normalize_arduino_pin(match)
+            point = {"arduino_pin": pin, "label": pin}
+            CircuitSenseiAgent._append_unique_location(points, point)
+        return points
+
+    @staticmethod
+    def _normalize_arduino_pin(pin: str) -> str:
+        normalized = pin.upper().replace(" ", "")
+        return ARDUINO_PIN_ALIASES.get(normalized, normalized)
+
+    @staticmethod
+    def _append_unique_location(points: list[dict[str, Any]], point: dict[str, Any]) -> None:
+        location = CircuitSenseiAgent._location_payload(point)
+        for existing in points:
+            if CircuitSenseiAgent._location_payload(existing) == location:
+                return
+        points.append(point)
+
+    @staticmethod
+    def _has_equivalent_arrow(arrows: list[dict[str, Any]], candidate: dict[str, Any]) -> bool:
+        candidate_start = candidate.get("from", {})
+        candidate_end = candidate.get("to", {})
+        for arrow in arrows:
+            start = arrow.get("from")
+            end = arrow.get("to")
+            if start == candidate_start and end == candidate_end:
+                return True
+            if start == candidate_end and end == candidate_start:
+                return True
+        return False
 
     def _attach_carryover_wires(self, annotations: dict[str, Any]) -> dict[str, Any]:
         carryover_wires = self._previous_wire_segments()
