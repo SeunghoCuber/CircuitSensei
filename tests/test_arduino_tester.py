@@ -116,6 +116,29 @@ def test_real_command_retries_transient_parse_error(monkeypatch) -> None:
     assert fake_serial.reset_called is True
 
 
+def test_reconnect_closes_previous_connection(monkeypatch) -> None:
+    first_serial = _FakeSerial([])
+    second_serial = _FakeSerial([])
+    call_count = [0]
+
+    def make_serial(*args, **kwargs) -> _FakeSerial:
+        call_count[0] += 1
+        return first_serial if call_count[0] == 1 else second_serial
+
+    serial_module = _serial_module_factory(make_serial, [_PortInfo("/dev/cu.usbmodem11101", vid=0x2341)])
+    monkeypatch.setitem(sys.modules, "serial", serial_module)
+    monkeypatch.setattr("circuit_sensei.hardware.arduino_tester.time.sleep", lambda seconds: None)
+
+    tester = ArduinoTester(port="auto", mock_mode=False)
+    tester.connect()
+    assert tester._serial is first_serial
+
+    tester.connect()
+
+    assert first_serial.closed is True
+    assert tester._serial is second_serial
+
+
 def test_close_releases_serial_connection() -> None:
     fake_serial = _FakeSerial([])
     tester = ArduinoTester(port="/dev/fake", mock_mode=False, _serial=fake_serial)
@@ -172,5 +195,12 @@ class _PortInfo:
 def _serial_module(fake_serial: _FakeSerial, ports: list[_PortInfo]):
     return types.SimpleNamespace(
         Serial=lambda *args, **kwargs: fake_serial,
+        tools=types.SimpleNamespace(list_ports=types.SimpleNamespace(comports=lambda: ports)),
+    )
+
+
+def _serial_module_factory(factory, ports: list[_PortInfo]):
+    return types.SimpleNamespace(
+        Serial=lambda *args, **kwargs: factory(*args, **kwargs),
         tools=types.SimpleNamespace(list_ports=types.SimpleNamespace(comports=lambda: ports)),
     )

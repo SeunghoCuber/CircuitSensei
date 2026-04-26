@@ -1410,13 +1410,10 @@ class CircuitSenseiAgent:
         return self._commit_response(self._state_response(text, SessionState.VERIFY, "step needs correction"))
 
     def _handle_verify_complete_state(self) -> str:
-        """Move from completed visual verification into controlled Arduino testing."""
+        """Move from completed visual verification directly into Arduino testing."""
 
-        text = (
-            "All visual build steps are verified. I will now run the Arduino-side validation. "
-            "Keep the USB connection in place and do not change the breadboard wiring while the test runs."
-        )
-        return self._commit_response(self._state_response(text, SessionState.TEST, "ready for Arduino test"))
+        self.session.apply_transition(SessionState.TEST)
+        return self._handle_test_state()
 
     def _handle_test_state(self) -> str:
         """Run the Arduino test deterministically instead of letting Gemini re-plan."""
