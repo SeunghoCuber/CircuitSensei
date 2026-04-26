@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { CameraView } from "./components/camera-view";
-import { AgentDrawer } from "./components/agent-drawer";
 import { BreadboardView } from "./components/breadboard-view";
 import { InstructionsPanel } from "./components/instructions-panel";
 import { ControlPanel } from "./components/control-panel";
@@ -10,7 +9,6 @@ import { NetlistModal } from "./components/netlist-modal";
 import { useAgentSocket } from "./hooks/use-agent-socket";
 
 export default function App() {
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [netlistOpen, setNetlistOpen] = useState(false);
   const {
@@ -40,7 +38,6 @@ export default function App() {
     <div className="size-full flex flex-col bg-zinc-950 text-zinc-100">
       <StatusBar
         agentState={agentState}
-        onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
         onShowNetlist={() => setNetlistOpen(true)}
       />
 
@@ -77,7 +74,6 @@ export default function App() {
         />
       </div>
 
-      <AgentDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} agentState={agentState} />
       <MockDemoDisclaimer open={disclaimerOpen} onClose={() => setDisclaimerOpen(false)} />
       <NetlistModal open={netlistOpen} onClose={() => setNetlistOpen(false)} />
     </div>
