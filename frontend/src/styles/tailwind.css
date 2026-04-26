@@ -1,5 +1,4 @@
 @import 'tailwindcss' source(none);
 @source '../**/*.{js,ts,jsx,tsx}';
-@source '../../landing-page.tsx';
 
 @import 'tw-animate-css';
