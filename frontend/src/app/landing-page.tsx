@@ -35,7 +35,7 @@ export function LandingPage() {
         </p>
 
         <Button
-          onClick={() => navigate('/assistant')}
+          onClick={() => navigate('/agent')}
           className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-6 text-lg h-auto rounded-xl shadow-2xl hover:shadow-emerald-500/20 transition-all transform hover:scale-105"
         >
           Start Building

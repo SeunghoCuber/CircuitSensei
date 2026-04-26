@@ -47,7 +47,7 @@ export const MOCK_DEMO_INITIAL_STAGE: DemoStage = {
   components: ["Arduino UNO demo kit", "Breadboard", "Resistors and jumper wires"],
   currentStep: 0,
   verifiedSteps: [],
-  annotationImageSrc: "/mock-demo-annotations/voltage-divider-step-0.svg",
+  annotationImageSrc: "/mock-demo-annotations/default-arduino-uno.png",
 };
 
 export const MOCK_DEMO_TURNS: DemoTurn[] = [

@@ -8,6 +8,7 @@ interface BreadboardViewProps {
   currentStep: number;
   planCount: number;
   annotationImageSrc?: string | null;
+  mockMode?: boolean;
 }
 
 const REFERENCE_IMAGE_SRC = "/api/reference-image";
@@ -18,6 +19,7 @@ export function BreadboardView({
   currentStep,
   planCount,
   annotationImageSrc,
+  mockMode = false,
 }: BreadboardViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -26,23 +28,25 @@ export function BreadboardView({
 
   // Webcam
   useEffect(() => {
-    if (cameraOn) {
-      navigator.mediaDevices
-        .getUserMedia({ video: true, audio: false })
-        .then((stream) => {
-          streamRef.current = stream;
-          if (videoRef.current) videoRef.current.srcObject = stream;
-        })
-        .catch((err) => console.warn("Camera unavailable:", err));
-    } else {
+    if (mockMode || !cameraOn) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
+      return;
     }
+
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: false })
+      .then((stream) => {
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      })
+      .catch((err) => console.warn("Camera unavailable:", err));
+
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [cameraOn]);
+  }, [cameraOn, mockMode]);
 
   // Poll the current step's annotation; fall back to the Arduino + breadboard reference.
   useEffect(() => {
@@ -114,10 +118,11 @@ export function BreadboardView({
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setCameraOn((v) => !v)}
-            title={cameraOn ? "Turn camera off" : "Turn camera on"}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition-colors"
+            disabled={mockMode}
+            title={mockMode ? "Camera is disabled in mock mode" : cameraOn ? "Turn camera off" : "Turn camera on"}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition-colors disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:bg-transparent"
           >
-            {cameraOn ? <Camera className="size-4" /> : <CameraOff className="size-4" />}
+            {cameraOn && !mockMode ? <Camera className="size-4" /> : <CameraOff className="size-4" />}
           </button>
           <div
             className={`size-2 rounded-full animate-pulse ${connected ? "bg-emerald-500" : "bg-red-500"}`}
@@ -133,13 +138,13 @@ export function BreadboardView({
             autoPlay
             playsInline
             muted
-            className={`w-full h-full object-cover ${cameraOn ? "block" : "hidden"}`}
+            className={`w-full h-full object-cover ${cameraOn && !mockMode ? "block" : "hidden"}`}
           />
-          {!cameraOn && (
+          {(!cameraOn || mockMode) && (
             <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
               <div className="text-center space-y-2">
                 <CameraOff className="size-8 mx-auto opacity-30" />
-                <div className="text-xs">Camera off</div>
+                <div className="text-xs">{mockMode ? "Camera disabled in mock mode" : "Camera off"}</div>
               </div>
             </div>
           )}

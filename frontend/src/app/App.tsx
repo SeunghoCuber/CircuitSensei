@@ -47,6 +47,7 @@ export default function App() {
               currentStep={currentStep}
               planCount={plan.length}
               annotationImageSrc={annotationImageSrc}
+              mockMode={mockMode}
             />
             <InstructionsPanel
               plan={plan}
