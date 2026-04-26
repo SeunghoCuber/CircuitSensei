@@ -329,6 +329,49 @@ def test_agent_reports_plan_hole_repairs(tmp_path) -> None:
     assert session.placement_plan[1]["annotations"]["points"][0]["row"] == "C"
 
 
+def test_setting_plan_clears_stale_annotation_image(tmp_path) -> None:
+    config = _config(tmp_path)
+    annotated_path = tmp_path / "sensei_annotated.jpg"
+    annotated_path.write_bytes(b"old annotation")
+    agent = CircuitSenseiAgent(
+        session=AgentSession(circuit_goal="blink an LED", inventory=["Arduino Uno", "LED"]),
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    agent._set_plan(build_builtin_plan("blink an LED"))
+
+    assert not annotated_path.exists()
+
+
+def test_advancing_step_clears_stale_annotation_image(tmp_path) -> None:
+    config = _config(tmp_path)
+    annotated_path = tmp_path / "sensei_annotated.jpg"
+    annotated_path.write_bytes(b"step 1 annotation")
+    plan = build_builtin_plan("blink an LED")
+    session = AgentSession(
+        current_state=SessionState.VERIFY,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED"],
+        placement_plan=plan,
+    )
+    session.add_history(
+        "tool",
+        CircuitSenseiTools.encode_tool_result("analyze_board", {"ok": True, "passed": True}),
+        name="analyze_board",
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    agent._advance_step_if_verified(SessionState.VERIFY, SessionState.INSTRUCT)
+
+    assert session.current_step == 1
+    assert not annotated_path.exists()
+
+
 def _config(tmp_path):
     return {
         "gemini": {"model": "gemini-2.5-flash", "vision_model": "gemini-2.5-flash", "retries": 1},

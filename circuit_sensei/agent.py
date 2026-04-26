@@ -8,6 +8,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Protocol
 
 from circuit_sensei.prompts.system_prompt import SYSTEM_PROMPT
@@ -1580,6 +1581,7 @@ class CircuitSenseiAgent:
         self.session.plan_repairs = repairs
         self.session.current_step = 0
         self.session.verified_steps.clear()
+        self._clear_annotation_image()
 
     def _ensure_plan(self) -> None:
         """Create a built-in plan if the model did not provide one."""
@@ -1659,8 +1661,18 @@ class CircuitSenseiAgent:
 
         if next_state == SessionState.INSTRUCT:
             self.session.current_step = min(self.session.current_step + 1, max(len(self.session.placement_plan) - 1, 0))
+            self._clear_annotation_image()
         elif next_state == SessionState.VERIFY_COMPLETE:
             self.session.current_step = len(self.session.placement_plan)
+            self._clear_annotation_image()
+
+    def _clear_annotation_image(self) -> None:
+        """Remove stale guidance so old steps are never shown as current."""
+
+        try:
+            Path(self.tools.annotated_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @property
     def current_step_number(self) -> int:
