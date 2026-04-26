@@ -1,6 +1,6 @@
 gemini:
-  model: gemma-4-31b-it
-  vision_model: gemma-4-31b-it
+  model: gemini-3-flash-preview
+  vision_model: gemini-3-flash-preview
   max_tool_rounds: 6
   retries: 3
 

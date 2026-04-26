@@ -30,12 +30,74 @@ class SessionState(str, Enum):
 ALLOWED_TRANSITIONS: dict[SessionState, set[SessionState]] = {
     SessionState.IDLE: {SessionState.INTAKE, SessionState.PLAN},
     SessionState.INTAKE: {SessionState.PLAN, SessionState.INTAKE},
-    SessionState.PLAN: {SessionState.INSTRUCT, SessionState.PLAN},
-    SessionState.INSTRUCT: {SessionState.VERIFY, SessionState.IDLE},
-    SessionState.VERIFY: {SessionState.INSTRUCT, SessionState.VERIFY, SessionState.VERIFY_COMPLETE},
+    SessionState.PLAN: {SessionState.INSTRUCT, SessionState.PLAN, SessionState.TEST},
+    SessionState.INSTRUCT: {SessionState.VERIFY, SessionState.IDLE, SessionState.TEST},
+    SessionState.VERIFY: {
+        SessionState.INSTRUCT,
+        SessionState.VERIFY,
+        SessionState.VERIFY_COMPLETE,
+        SessionState.TEST,
+    },
     SessionState.VERIFY_COMPLETE: {SessionState.TEST, SessionState.IDLE},
-    SessionState.TEST: {SessionState.IDLE, SessionState.INSTRUCT},
+    SessionState.TEST: {
+        SessionState.IDLE,
+        SessionState.INSTRUCT,
+        SessionState.VERIFY,
+        SessionState.VERIFY_COMPLETE,
+        SessionState.TEST,
+    },
 }
+
+
+PLAN_KIND_BUILD = "build"
+PLAN_KIND_ARDUINO_TEST = "arduino_test"
+PLAN_KIND_DIAGNOSTIC_TEST = "diagnostic_test"
+TEST_PLAN_KINDS = frozenset({PLAN_KIND_ARDUINO_TEST, PLAN_KIND_DIAGNOSTIC_TEST, "test"})
+
+
+def plan_item_kind(item: dict[str, Any] | None) -> str:
+    """Return the normalized kind for a plan item, defaulting to build."""
+
+    if not isinstance(item, dict):
+        return PLAN_KIND_BUILD
+    return str(item.get("kind", PLAN_KIND_BUILD)).lower().strip() or PLAN_KIND_BUILD
+
+
+def is_test_plan_item(item: dict[str, Any] | None) -> bool:
+    """Return True if the plan item is an Arduino test action, not a build."""
+
+    return plan_item_kind(item) in TEST_PLAN_KINDS
+
+
+def plan_has_test_items(plan: list[dict[str, Any]]) -> bool:
+    """Return True if any plan item is an Arduino test action."""
+
+    return any(is_test_plan_item(item) for item in plan or [])
+
+
+def _normalize_plan_item(item: Any, index: int) -> dict[str, Any]:
+    """Normalize a plan item dict so the rest of the agent can treat all kinds uniformly."""
+
+    if not isinstance(item, dict):
+        return {"step": index + 1, "kind": PLAN_KIND_BUILD, "instruction": str(item)}
+    normalized = dict(item)
+    normalized.setdefault("step", index + 1)
+    kind = plan_item_kind(normalized)
+    normalized["kind"] = kind
+    if is_test_plan_item(normalized):
+        title = str(normalized.get("title") or "Arduino test").strip() or "Arduino test"
+        description = str(
+            normalized.get("description")
+            or normalized.get("instruction")
+            or f"Run {normalized.get('test_type', 'arduino')} test"
+        ).strip()
+        normalized["title"] = title
+        normalized.setdefault("description", description)
+        # Frontend uses `instruction` for the active step body — keep test items renderable.
+        normalized.setdefault("instruction", description)
+        normalized.setdefault("verification", "")
+        normalized.setdefault("annotations", {})
+    return normalized
 
 
 @dataclass
@@ -54,6 +116,10 @@ class AgentSession:
     arduino_connected: bool = False
     arduino_port: str | None = None
     plan_repairs: list[str] = field(default_factory=list)
+    pending_diagnostic: dict[str, Any] | None = None
+    diagnostic_resume: dict[str, Any] | None = None
+    diagnostic_history: list[dict[str, Any]] = field(default_factory=list)
+    last_test_result: dict[str, Any] | None = None
 
     def add_history(self, role: str, content: Any, name: str | None = None) -> None:
         """Append an item to conversation history."""
@@ -86,6 +152,9 @@ class AgentSession:
             "arduino_connected": self.arduino_connected,
             "arduino_port": self.arduino_port,
             "plan_repairs": self.plan_repairs,
+            "pending_diagnostic": self.pending_diagnostic,
+            "diagnostic_history": self.diagnostic_history,
+            "last_test_result": self.last_test_result,
         }
 
 
@@ -171,6 +240,25 @@ WIRE_HINT_TOKENS = (
     "rail",
     "signal",
     "to arduino",
+)
+
+UNEXPECTED_BEHAVIOR_RE = re.compile(
+    r"(?:nothing\s+(?:happen(?:ed|s|ing)?|is\s+happening)"
+    r"|(?:doesn'?t|won'?t|isn'?t|is\s+not|isn?\s+not)\s+(?:work|working|turn(?:ing)?\s+on|light(?:ing)?|glow(?:ing)?|respond(?:ing)?)"
+    r"|not\s+(?:working|lighting|turning\s+on|responding)"
+    r"|no\s+(?:light|power|response|voltage|current)"
+    r"|(?:stays|stuck)\s+off"
+    r"|(?:too\s+|very\s+)?dim"
+    r"|flicker(?:ing)?"
+    r"|(?:0|zero)\s*(?:v|volts?)\b"
+    r"|different\s+(?:than|from)\s+expected"
+    r"|differs\s+from\s+expected"
+    r"|unexpected\s+(?:behavior|behaviour|reading|result)"
+    r"|wrong\s+(?:reading|result|value)"
+    r"|something(?:'s|\s+is)?\s+(?:wrong|off)"
+    r"|it'?s?\s+(?:not\s+working|broken|wrong)"
+    r")",
+    re.IGNORECASE,
 )
 
 COMPONENT_HINT_TOKENS = (
@@ -838,10 +926,21 @@ class CircuitSenseiAgent:
 
         if self._is_manual_confirm(user_text):
             return self.manual_confirm_current_step()
+        if (
+            user_text.strip()
+            and self.session.placement_plan
+            and self.session.current_state
+            in {SessionState.INSTRUCT, SessionState.VERIFY, SessionState.VERIFY_COMPLETE, SessionState.TEST}
+            and self._is_unexpected_behavior_report(user_text)
+            and not self.session.pending_diagnostic
+        ):
+            return self._start_diagnostic_test(user_text)
         if self.session.current_state == SessionState.PLAN and self.session.placement_plan and not user_text.strip():
-            self.session.apply_transition(SessionState.INSTRUCT)
-            return self._handle_instruction_state()
+            return self._enter_first_plan_item()
         if self.session.current_state == SessionState.INSTRUCT and self.session.placement_plan:
+            if is_test_plan_item(self._current_plan_step()):
+                self.session.apply_transition(SessionState.TEST)
+                return self._handle_test_state()
             return self._handle_instruction_state()
         if self.session.current_state == SessionState.VERIFY and self.session.placement_plan:
             if user_text.strip():
@@ -1394,11 +1493,15 @@ class CircuitSenseiAgent:
             return self._commit_response(self._state_response(text, SessionState.VERIFY, "vision check unavailable"))
 
         if bool(analysis.get("passed")):
-            if self.session.current_step + 1 >= len(self.session.placement_plan):
-                text = "Placement looks correct! All build steps are visually verified."
-                return self._commit_response(self._state_response(text, SessionState.VERIFY_COMPLETE, "all steps verified"))
-            text = "Placement looks correct! Say **ready** to continue to the next step."
-            return self._commit_response(self._state_response(text, SessionState.INSTRUCT, "step verified"))
+            next_state, follow_up = self._resolve_state_after_step_completion()
+            text = f"Placement looks correct! {follow_up}"
+            reason = {
+                SessionState.VERIFY_COMPLETE: "all steps verified",
+                SessionState.TEST: "next item is a planned test",
+                SessionState.INSTRUCT: "step verified",
+                SessionState.IDLE: "plan complete",
+            }.get(next_state, "step verified")
+            return self._commit_response(self._state_response(text, next_state, reason))
 
         details = self._summarize_vision_analysis(
             analysis.get("analysis", "Placement did not match the requested step.")
@@ -1411,13 +1514,21 @@ class CircuitSenseiAgent:
         return self._commit_response(self._state_response(text, SessionState.VERIFY, "step needs correction"))
 
     def _handle_verify_complete_state(self) -> str:
-        """Move from completed visual verification directly into Arduino testing."""
+        """After visual verification completes, run a final test only if the plan didn't include one."""
 
+        if plan_has_test_items(self.session.placement_plan):
+            text = (
+                "All build steps and planned Arduino tests are complete. "
+                "Circuit-Sensei is back at IDLE. Start a new goal when you are ready."
+            )
+            return self._commit_response(self._state_response(text, SessionState.IDLE, "plan finished"))
         self.session.apply_transition(SessionState.TEST)
         return self._handle_test_state()
 
     def _handle_test_state(self) -> str:
-        """Run the Arduino test deterministically instead of letting Gemini re-plan."""
+        """Run an Arduino test action deterministically — planned, diagnostic, or legacy final."""
+
+        active_item, source = self._active_test_item()
 
         connect = self.tools.execute("arduino_connect", {"port": self.session.arduino_port})
         self._record_tool_result("arduino_connect", connect)
@@ -1431,9 +1542,14 @@ class CircuitSenseiAgent:
             self.session.add_history("assistant", text)
             return text
 
-        test_type, expected_values = self._test_spec()
-        result = self.tools.execute("run_test_script", {"test_type": test_type, "expected_values": expected_values})
+        test_type, expected_values = self._test_spec_for_item(active_item)
+        result = self.tools.execute(
+            "run_test_script",
+            {"test_type": test_type, "expected_values": expected_values},
+        )
         self._record_tool_result("run_test_script", result)
+        self.session.last_test_result = result
+
         if not result.get("ok") and result.get("status") != "ok":
             text = (
                 "The Arduino test command did not complete cleanly. I am staying in the test checkpoint so you can retry.\n\n"
@@ -1445,12 +1561,32 @@ class CircuitSenseiAgent:
         passed = bool(result.get("passed", result.get("status") == "ok"))
         measurements = result.get("measurements", result)
         verdict = "PASS" if passed else "CHECK NEEDED"
-        text = (
-            f"Arduino test result: {verdict}\n\n"
-            f"Test type: {test_type}\n"
-            f"Measurements: {json.dumps(measurements, sort_keys=True)}\n\n"
-            "Circuit-Sensei is back at IDLE. Start a new goal when you are ready."
-        )
+        title = (active_item or {}).get("title") or test_type
+        body_lines = [
+            f"Arduino test result: {verdict}",
+            "",
+            f"Test: {title}",
+            f"Test type: {test_type}",
+            f"Measurements: {json.dumps(measurements, sort_keys=True)}",
+        ]
+
+        if not passed:
+            body_lines.append("")
+            body_lines.append(
+                "Adjust the placement, then say **retry** to re-run this test — "
+                "or **looks good** to confirm the result manually."
+            )
+            text = "\n".join(body_lines)
+            self.session.add_history("assistant", text)
+            return text
+
+        if source == "diagnostic":
+            return self._finish_diagnostic_test(body_lines)
+        if source == "planned":
+            return self._finish_planned_test(body_lines)
+        body_lines.append("")
+        body_lines.append("Circuit-Sensei is back at IDLE. Start a new goal when you are ready.")
+        text = "\n".join(body_lines)
         return self._commit_response(self._state_response(text, SessionState.IDLE, "test complete"))
 
     def _test_spec(self) -> tuple[str, dict[str, Any]]:
@@ -1461,6 +1597,192 @@ class CircuitSenseiAgent:
         if "button" in self.session.circuit_goal.lower():
             return "button", {"pin": 2}
         return "led", {"drive_pin": 9, "sense_pin": "A0"}
+
+    def _test_spec_for_item(self, item: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+        """Return the (test_type, expected_values) for a planned/diagnostic test or legacy fallback."""
+
+        if isinstance(item, dict):
+            test_type = str(item.get("test_type", "")).strip()
+            expected = item.get("expected_values") or item.get("params") or {}
+            if not isinstance(expected, dict):
+                expected = {}
+            if test_type:
+                return test_type, dict(expected)
+        return self._test_spec()
+
+    def _active_test_item(self) -> tuple[dict[str, Any] | None, str]:
+        """Return (item, source) where source is one of 'diagnostic', 'planned', 'legacy'."""
+
+        if self.session.pending_diagnostic:
+            return dict(self.session.pending_diagnostic), "diagnostic"
+        plan = self.session.placement_plan
+        if plan and 0 <= self.session.current_step < len(plan):
+            current_item = plan[self.session.current_step]
+            if is_test_plan_item(current_item):
+                return dict(current_item), "planned"
+        return None, "legacy"
+
+    def _resolve_state_after_step_completion(self) -> tuple[SessionState, str]:
+        """Decide the state and follow-up phrasing after the current step is verified/passed."""
+
+        plan = self.session.placement_plan
+        if not plan:
+            return SessionState.IDLE, "Plan complete."
+        next_index = self.session.current_step + 1
+        if next_index >= len(plan):
+            if plan_has_test_items(plan):
+                return (
+                    SessionState.IDLE,
+                    "All build steps and planned Arduino tests are complete.",
+                )
+            return (
+                SessionState.VERIFY_COMPLETE,
+                "All build steps are visually verified — say **ready** to move on to Arduino testing.",
+            )
+        if is_test_plan_item(plan[next_index]):
+            title = str(plan[next_index].get("title") or "next Arduino test").strip()
+            return (
+                SessionState.TEST,
+                f"Say **ready** to run the {title}.",
+            )
+        return (
+            SessionState.INSTRUCT,
+            "Say **ready** to continue to the next step.",
+        )
+
+    def _enter_first_plan_item(self) -> str:
+        """Move out of PLAN into the first plan item's handler (build or test)."""
+
+        plan = self.session.placement_plan
+        if plan and is_test_plan_item(plan[0]):
+            self.session.apply_transition(SessionState.TEST)
+            return self._handle_test_state()
+        self.session.apply_transition(SessionState.INSTRUCT)
+        return self._handle_instruction_state()
+
+    def _finish_planned_test(self, body_lines: list[str]) -> str:
+        """Mark the current planned test as complete and advance to the next item."""
+
+        step_number = self.current_step_number
+        if step_number and step_number not in self.session.verified_steps:
+            self.session.verified_steps.append(step_number)
+
+        next_state, follow_up = self._resolve_state_after_step_completion()
+        body_lines.append("")
+        body_lines.append(follow_up)
+        text = "\n".join(body_lines)
+
+        if next_state in {SessionState.VERIFY_COMPLETE, SessionState.IDLE}:
+            self.session.current_step = len(self.session.placement_plan)
+            return self._commit_response(self._state_response(text, next_state, "planned test complete"))
+        self.session.current_step = min(
+            self.session.current_step + 1, max(len(self.session.placement_plan) - 1, 0)
+        )
+        self._clear_annotation_image()
+        return self._commit_response(self._state_response(text, next_state, "planned test complete"))
+
+    def _finish_diagnostic_test(self, body_lines: list[str]) -> str:
+        """Resume the previous build state after a diagnostic test passes."""
+
+        diagnostic = self.session.pending_diagnostic or {}
+        resume = self.session.diagnostic_resume or {}
+        resume_state_value = resume.get("state", SessionState.INSTRUCT.value)
+        try:
+            resume_state = SessionState(resume_state_value)
+        except ValueError:
+            resume_state = SessionState.INSTRUCT
+        resume_step = int(resume.get("current_step", self.session.current_step))
+
+        # Restore prior position; diagnostics never advance the build plan.
+        self.session.current_step = resume_step
+        self.session.pending_diagnostic = None
+        self.session.diagnostic_resume = None
+        self.session.diagnostic_history.append(
+            {
+                "test_type": diagnostic.get("test_type"),
+                "trigger": diagnostic.get("trigger"),
+                "result": self.session.last_test_result,
+            }
+        )
+
+        if resume_state == SessionState.VERIFY:
+            follow_up = (
+                "Diagnostic measurement looks healthy. We're back at the camera-verification checkpoint — "
+                "say **retry** to re-run the visual check, or **looks good** to confirm manually."
+            )
+        elif resume_state == SessionState.VERIFY_COMPLETE:
+            follow_up = (
+                "Diagnostic measurement looks healthy. All visual checks already passed — "
+                "say **ready** when you want to continue."
+            )
+        elif resume_state == SessionState.TEST:
+            follow_up = (
+                "Diagnostic measurement looks healthy. Say **ready** to resume the planned Arduino test."
+            )
+        else:
+            follow_up = (
+                "Diagnostic measurement looks healthy. Resuming the build — "
+                "say **ready** to continue with the next instruction."
+            )
+        body_lines.append("")
+        body_lines.append(follow_up)
+        text = "\n".join(body_lines)
+        return self._commit_response(self._state_response(text, resume_state, "diagnostic complete"))
+
+    def _start_diagnostic_test(self, user_text: str) -> str:
+        """Insert and run a one-off Arduino diagnostic without disturbing build progress."""
+
+        spec = self._diagnostic_spec_for_report(user_text)
+        self.session.pending_diagnostic = {
+            "kind": PLAN_KIND_DIAGNOSTIC_TEST,
+            "title": spec.get("title", "Diagnostic test"),
+            "test_type": spec["test_type"],
+            "expected_values": spec.get("expected_values", {}),
+            "trigger": user_text.strip()[:240],
+        }
+        self.session.diagnostic_resume = {
+            "state": self.session.current_state.value,
+            "current_step": self.session.current_step,
+        }
+        if SessionState.TEST not in ALLOWED_TRANSITIONS[self.session.current_state]:
+            self.session.diagnostic_resume = None
+            self.session.pending_diagnostic = None
+            text = (
+                "I noticed something unexpected, but I can't run a diagnostic from this state. "
+                "Tell me what you're seeing and I'll help interpret it."
+            )
+            self.session.add_history("assistant", text)
+            return text
+        self.session.apply_transition(SessionState.TEST)
+        return self._handle_test_state()
+
+    def _diagnostic_spec_for_report(self, user_text: str) -> dict[str, Any]:
+        """Pick a sensible Arduino diagnostic for the user's reported symptom."""
+
+        text = user_text.lower()
+        goal = self.session.circuit_goal.lower()
+        if any(token in text for token in ("0v", "zero volt", "voltage", "midpoint")) or "divider" in goal:
+            return {
+                "title": "Diagnostic voltage check",
+                "test_type": "voltage_divider",
+                "expected_values": {"pin": "A0", "tolerance": 0.5},
+            }
+        if "button" in goal or "button" in text or "switch" in text:
+            return {
+                "title": "Diagnostic button read",
+                "test_type": "button",
+                "expected_values": {"pin": 2},
+            }
+        return {
+            "title": "Diagnostic LED drive check",
+            "test_type": "led",
+            "expected_values": {"drive_pin": 9, "sense_pin": "A0"},
+        }
+
+    def _is_unexpected_behavior_report(self, user_text: str) -> bool:
+        """Return True if the user just reported a symptom worth a quick diagnostic test."""
+
+        return bool(UNEXPECTED_BEHAVIOR_RE.search(user_text or ""))
 
     def manual_confirm_current_step(self) -> str:
         """Manually mark the current verification step as passed."""
@@ -1482,17 +1804,18 @@ class CircuitSenseiAgent:
             name="manual_confirm",
         )
 
-        if self.session.current_step + 1 >= len(self.session.placement_plan):
+        next_state, follow_up = self._resolve_state_after_step_completion()
+        if next_state in {SessionState.VERIFY_COMPLETE, SessionState.IDLE}:
             self.session.current_step = len(self.session.placement_plan)
+            self._clear_annotation_image()
             self.session.apply_transition(SessionState.VERIFY_COMPLETE)
-            text = (
-                f"Step {step_number} confirmed. "
-                "All build steps are verified — say **ready** to move on to Arduino testing."
-            )
         else:
-            self.session.current_step += 1
-            self.session.apply_transition(SessionState.INSTRUCT)
-            text = f"Step {step_number} confirmed. Say **ready** to continue to the next step."
+            self.session.current_step = min(
+                self.session.current_step + 1, max(len(self.session.placement_plan) - 1, 0)
+            )
+            self._clear_annotation_image()
+            self.session.apply_transition(next_state)
+        text = f"Step {step_number} confirmed. {follow_up}"
 
         self.session.add_history("assistant", text)
         return text
@@ -1598,11 +1921,15 @@ class CircuitSenseiAgent:
     def _set_plan(self, plan: list[dict[str, Any]]) -> None:
         """Replace the placement plan and reset step verification."""
 
-        repaired, repairs = validate_and_repair_plan(plan)
+        normalized = [_normalize_plan_item(item, index) for index, item in enumerate(plan)]
+        repaired, repairs = validate_and_repair_plan(normalized)
         self.session.placement_plan = repaired
         self.session.plan_repairs = repairs
         self.session.current_step = 0
         self.session.verified_steps.clear()
+        self.session.pending_diagnostic = None
+        self.session.diagnostic_resume = None
+        self.session.last_test_result = None
         self._clear_annotation_image()
 
     def _ensure_plan(self) -> None:
@@ -1672,7 +1999,12 @@ class CircuitSenseiAgent:
     def _advance_step_if_verified(self, previous_state: SessionState, next_state: SessionState) -> None:
         if previous_state != SessionState.VERIFY:
             return
-        if next_state not in {SessionState.INSTRUCT, SessionState.VERIFY_COMPLETE}:
+        if next_state not in {
+            SessionState.INSTRUCT,
+            SessionState.VERIFY_COMPLETE,
+            SessionState.TEST,
+            SessionState.IDLE,
+        }:
             return
         if not self._last_analysis_passed():
             return
@@ -1681,10 +2013,10 @@ class CircuitSenseiAgent:
         if step_number and step_number not in self.session.verified_steps:
             self.session.verified_steps.append(step_number)
 
-        if next_state == SessionState.INSTRUCT:
+        if next_state in {SessionState.INSTRUCT, SessionState.TEST}:
             self.session.current_step = min(self.session.current_step + 1, max(len(self.session.placement_plan) - 1, 0))
             self._clear_annotation_image()
-        elif next_state == SessionState.VERIFY_COMPLETE:
+        elif next_state in {SessionState.VERIFY_COMPLETE, SessionState.IDLE}:
             self.session.current_step = len(self.session.placement_plan)
             self._clear_annotation_image()
 

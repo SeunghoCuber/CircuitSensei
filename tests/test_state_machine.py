@@ -11,7 +11,9 @@ from circuit_sensei.agent import (
     SessionState,
     build_builtin_plan,
     breadboard_node,
+    is_test_plan_item,
     parse_state_transition,
+    plan_has_test_items,
     sanitize_user_facing_text,
     validate_and_repair_plan,
 )
@@ -453,6 +455,259 @@ class _VerifyFailureTools(CircuitSenseiTools):
                 "image_path": self.frame_path,
             }
         return super().execute(name, args)
+
+
+def _interleaved_plan() -> list[dict]:
+    """Return a small mock plan with a build, a vision verify, an arduino_test, then more build."""
+    builtin = build_builtin_plan("blink an LED")
+    return [
+        builtin[0],
+        {
+            "step": 2,
+            "kind": "arduino_test",
+            "title": "Resistor continuity",
+            "test_type": "led",
+            "expected_values": {"drive_pin": 9, "sense_pin": "A0"},
+            "description": "Verify the resistor node has continuity before placing the LED.",
+        },
+        builtin[1],
+        {
+            "step": 4,
+            "kind": "arduino_test",
+            "title": "LED drive test",
+            "test_type": "led",
+            "expected_values": {"drive_pin": 9, "sense_pin": "A0"},
+        },
+    ]
+
+
+def test_plan_kind_helpers_default_to_build() -> None:
+    assert is_test_plan_item({"step": 1}) is False
+    assert is_test_plan_item({"kind": "build"}) is False
+    assert is_test_plan_item({"kind": "arduino_test"}) is True
+    assert is_test_plan_item({"kind": "diagnostic_test"}) is True
+    assert plan_has_test_items([{"kind": "build"}]) is False
+    assert plan_has_test_items([{"kind": "build"}, {"kind": "arduino_test"}]) is True
+
+
+def test_planned_arduino_test_runs_between_build_steps_then_advances(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = _interleaved_plan()
+    session = AgentSession(
+        current_state=SessionState.VERIFY,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED", "330 ohm resistor"],
+        placement_plan=plan,
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    # Step 1 (build) verified visually; next item is the arduino_test.
+    response = agent.handle_user_message("looks good")
+    assert "Step 1 confirmed" in response
+    assert "Resistor continuity" in response
+    assert session.current_state == SessionState.TEST
+    assert session.current_step == 1
+
+    # Run the planned test; it should pass and advance to the next build step.
+    response = agent.handle_user_message("ready")
+    assert "Arduino test result: PASS" in response
+    assert session.current_state == SessionState.INSTRUCT
+    assert session.current_step == 2
+    assert 2 in session.verified_steps
+
+    # The placement plan must be intact.
+    assert session.placement_plan == plan
+
+
+def test_planned_test_does_not_route_to_idle_mid_plan(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = _interleaved_plan()
+    session = AgentSession(
+        current_state=SessionState.TEST,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED", "330 ohm resistor"],
+        placement_plan=plan,
+        current_step=1,  # the resistor continuity arduino_test
+        verified_steps=[1],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("")
+    assert "Arduino test result: PASS" in response
+    assert session.current_state == SessionState.INSTRUCT
+    assert session.current_step == 2  # next build step
+    assert session.placement_plan == plan
+
+
+def test_final_planned_test_returns_to_idle(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = _interleaved_plan()
+    session = AgentSession(
+        current_state=SessionState.TEST,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED", "330 ohm resistor"],
+        placement_plan=plan,
+        current_step=3,  # the final arduino_test
+        verified_steps=[1, 2, 3],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("")
+    assert "Arduino test result: PASS" in response
+    assert session.current_state == SessionState.IDLE
+    assert session.current_step == len(plan)
+
+
+def test_diagnostic_test_runs_then_resumes_verify(tmp_path) -> None:
+    config = _config(tmp_path)
+    session = AgentSession(
+        current_state=SessionState.VERIFY,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED", "330 ohm resistor"],
+        placement_plan=build_builtin_plan("blink an LED"),
+        current_step=1,
+        verified_steps=[1],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("Nothing happened when I plugged it in.")
+
+    assert "Arduino test result: PASS" in response
+    assert "Diagnostic" in response
+    # Session resumed at the original VERIFY step without losing progress.
+    assert session.current_state == SessionState.VERIFY
+    assert session.current_step == 1
+    assert session.verified_steps == [1]
+    assert session.pending_diagnostic is None
+    assert session.diagnostic_resume is None
+    assert len(session.diagnostic_history) == 1
+    assert session.diagnostic_history[0]["test_type"] == "led"
+
+
+def test_diagnostic_test_during_instruct_resumes_to_instruct(tmp_path) -> None:
+    config = _config(tmp_path)
+    session = AgentSession(
+        current_state=SessionState.INSTRUCT,
+        circuit_goal="build a 2.5V voltage divider",
+        inventory=["Arduino Uno", "two 10k resistors"],
+        placement_plan=build_builtin_plan("build a 2.5V voltage divider"),
+        current_step=2,
+        verified_steps=[1, 2],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("I see 0V at the midpoint, that's different than expected.")
+
+    assert "Arduino test result: PASS" in response
+    assert session.current_state == SessionState.INSTRUCT
+    assert session.current_step == 2
+    assert session.verified_steps == [1, 2]
+    assert session.pending_diagnostic is None
+
+
+def test_unexpected_behavior_during_verify_does_not_replace_plan(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = build_builtin_plan("blink an LED")
+    session = AgentSession(
+        current_state=SessionState.VERIFY,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED"],
+        placement_plan=plan,
+        current_step=1,
+        verified_steps=[1],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    agent.handle_user_message("the LED is dim")
+
+    assert session.placement_plan == plan
+    assert session.current_step == 1
+    assert session.verified_steps == [1]
+
+
+def test_visual_verify_pass_skips_legacy_terminal_test_when_plan_has_arduino_tests(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = _interleaved_plan()
+    session = AgentSession(
+        current_state=SessionState.VERIFY_COMPLETE,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED"],
+        placement_plan=plan,
+        current_step=len(plan),
+        verified_steps=[1, 2, 3, 4],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("")
+    assert "back at IDLE" in response.lower() or "idle" in response.lower()
+    assert session.current_state == SessionState.IDLE
+
+
+def test_legacy_plan_without_test_items_still_runs_terminal_test(tmp_path) -> None:
+    config = _config(tmp_path)
+    plan = build_builtin_plan("blink an LED")
+    session = AgentSession(
+        current_state=SessionState.VERIFY_COMPLETE,
+        circuit_goal="blink an LED",
+        inventory=["Arduino Uno", "LED"],
+        placement_plan=plan,
+        current_step=len(plan),
+        verified_steps=[1, 2, 3],
+    )
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("")
+    assert "Arduino test result: PASS" in response
+    assert session.current_state == SessionState.IDLE
+
+
+def test_diagnostic_skipped_when_state_does_not_allow_test(tmp_path) -> None:
+    """A pure-IDLE unexpected-behavior message should not derail the session."""
+    config = _config(tmp_path)
+    session = AgentSession(current_state=SessionState.IDLE)
+    agent = CircuitSenseiAgent(
+        session=session,
+        tools=CircuitSenseiTools(config, console=Console(file=None)),
+        model_client=MockGeminiModelClient(),
+    )
+
+    response = agent.handle_user_message("nothing happened")
+
+    assert session.pending_diagnostic is None
+    # IDLE flow asks for goal/inventory; just make sure the state machine isn't broken.
+    assert response
 
 
 def json_plan_with_duplicate_hole() -> str:
