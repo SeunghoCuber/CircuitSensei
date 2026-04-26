@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "build:mock": "VITE_CIRCUIT_SENSEI_MOCK_DEMO=true vite build",
     "dev": "vite"
   },
   "dependencies": {

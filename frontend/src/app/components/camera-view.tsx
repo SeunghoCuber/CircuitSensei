@@ -24,6 +24,8 @@ interface CameraViewProps {
   messages: ChatMessage[];
   isLoading: boolean;
   ttsEnabled: boolean;
+  mockMode?: boolean;
+  inputDisabled?: boolean;
   onTtsEnabledChange: (enabled: boolean) => void;
   onSend: (text: string) => void;
 }
@@ -39,6 +41,8 @@ export function CameraView({
   messages,
   isLoading,
   ttsEnabled,
+  mockMode = false,
+  inputDisabled = false,
   onTtsEnabledChange,
   onSend,
 }: CameraViewProps) {
@@ -66,6 +70,13 @@ export function CameraView({
       body: JSON.stringify({ model }),
     }).catch(() => {});
   };
+
+  useEffect(() => {
+    if (messages.length < processedRef.current) {
+      processedRef.current = 0;
+      setDisplayed([]);
+    }
+  }, [messages.length]);
 
   // Typewriter effect: process new messages as they arrive
   useEffect(() => {
@@ -124,15 +135,21 @@ export function CameraView({
           <MessageCircle className="size-4 text-emerald-400" />
           <span className="text-sm text-zinc-100">Agent Chat</span>
           <span className="text-zinc-600 text-xs select-none">·</span>
-          <select
-            value={selectedModel}
-            onChange={handleModelChange}
-            className="text-xs text-zinc-400 bg-transparent border-none outline-none cursor-pointer hover:text-zinc-200 focus:text-zinc-200 transition-colors appearance-none"
-          >
-            {AVAILABLE_MODELS.map((m) => (
-              <option key={m} value={m} className="bg-zinc-900 text-zinc-200">{MODEL_LABELS[m]}</option>
-            ))}
-          </select>
+          {mockMode ? (
+            <span className="rounded border border-emerald-500/30 bg-emerald-950/30 px-1.5 py-0.5 text-xs text-emerald-300">
+              Scripted demo
+            </span>
+          ) : (
+            <select
+              value={selectedModel}
+              onChange={handleModelChange}
+              className="text-xs text-zinc-400 bg-transparent border-none outline-none cursor-pointer hover:text-zinc-200 focus:text-zinc-200 transition-colors appearance-none"
+            >
+              {AVAILABLE_MODELS.map((m) => (
+                <option key={m} value={m} className="bg-zinc-900 text-zinc-200">{MODEL_LABELS[m]}</option>
+              ))}
+            </select>
+          )}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -197,10 +214,16 @@ export function CameraView({
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Message agent…"
-            className="min-w-0 flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            disabled={inputDisabled}
+            placeholder={inputDisabled ? "Demo complete" : "Message agent…"}
+            className="min-w-0 flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:text-zinc-600"
           />
-          <Button type="submit" size="icon" className="bg-emerald-600 hover:bg-emerald-700 shrink-0">
+          <Button
+            type="submit"
+            size="icon"
+            disabled={inputDisabled}
+            className="bg-emerald-600 hover:bg-emerald-700 shrink-0 disabled:bg-zinc-800 disabled:text-zinc-600"
+          >
             <Send className="size-4" />
           </Button>
         </form>

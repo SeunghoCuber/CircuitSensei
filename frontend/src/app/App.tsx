@@ -1,18 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CameraView } from "./components/camera-view";
 import { AgentDrawer } from "./components/agent-drawer";
 import { BreadboardView } from "./components/breadboard-view";
 import { InstructionsPanel } from "./components/instructions-panel";
 import { ControlPanel } from "./components/control-panel";
 import { StatusBar } from "./components/status-bar";
+import { MockDemoDisclaimer } from "./components/mock-demo-disclaimer";
 import { useAgentSocket } from "./hooks/use-agent-socket";
 
 export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const {
     connected,
     isLoading,
     ttsEnabled,
+    mockMode,
+    mockDemoComplete,
     messages,
     sendMessage,
     setTtsEnabled,
@@ -21,7 +25,14 @@ export default function App() {
     components,
     currentStep,
     verifiedSteps,
+    annotationImageSrc,
   } = useAgentSocket();
+
+  useEffect(() => {
+    if (mockMode) {
+      setDisclaimerOpen(true);
+    }
+  }, [mockMode]);
 
   return (
     <div className="size-full flex flex-col bg-zinc-950 text-zinc-100">
@@ -35,6 +46,7 @@ export default function App() {
               components={components}
               currentStep={currentStep}
               planCount={plan.length}
+              annotationImageSrc={annotationImageSrc}
             />
             <InstructionsPanel
               plan={plan}
@@ -44,19 +56,22 @@ export default function App() {
             />
           </div>
 
-          <ControlPanel onSend={sendMessage} />
+          <ControlPanel onSend={sendMessage} disabled={mockDemoComplete} />
         </div>
 
         <CameraView
           messages={messages}
           isLoading={isLoading}
           ttsEnabled={ttsEnabled}
+          mockMode={mockMode}
+          inputDisabled={mockDemoComplete}
           onTtsEnabledChange={setTtsEnabled}
           onSend={sendMessage}
         />
       </div>
 
       <AgentDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} agentState={agentState} />
+      <MockDemoDisclaimer open={disclaimerOpen} onClose={() => setDisclaimerOpen(false)} />
     </div>
   );
 }

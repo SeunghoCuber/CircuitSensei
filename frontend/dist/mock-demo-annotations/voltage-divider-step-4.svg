@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 2162 1484" width="2162" height="1484">
+  <defs>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+  <image href="/breadboard-default.jpg" xlink:href="/breadboard-default.jpg" width="2162" height="1484" preserveAspectRatio="xMidYMid slice"/>
+  <rect x="0" y="0" width="2162" height="1484" fill="#020617" opacity="0.08"/>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="1052" y="58" width="982" height="144" rx="16" fill="#052e2b" opacity="0.96"/>
+    <rect x="1052" y="58" width="982" height="144" rx="16" fill="none" stroke="#34d399" stroke-width="4" opacity="0.78"/>
+    <text x="1092" y="112" fill="#a7f3d0" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="700">Visual check passed</text>
+    <text x="1092" y="162" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="27">R1, R2, D9, A0, and GND match the scripted layout.</text>
+  </g>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft-shadow)">
+    <path d="M1425 485 C1360 600 1360 815 1425 932" stroke="#22c55e" stroke-width="14" opacity="0.78"/>
+    <path d="M1470 932 C1548 1030 1548 1280 1470 1379" stroke="#38bdf8" stroke-width="14" opacity="0.78"/>
+    <path d="M913 868 C1112 795 1240 575 1470 485" stroke="#22c55e" stroke-width="14" opacity="0.72"/>
+    <path d="M63 1074 C430 1020 1040 1038 1515 932" stroke="#38bdf8" stroke-width="14" opacity="0.72"/>
+    <path d="M63 895 C440 1210 1000 1430 1515 1379" stroke="#facc15" stroke-width="14" opacity="0.72"/>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <circle cx="1425" cy="485" r="25" fill="#22c55e" stroke="#052e2b" stroke-width="6"/>
+    <circle cx="1425" cy="932" r="25" fill="#22c55e" stroke="#052e2b" stroke-width="6"/>
+    <circle cx="1470" cy="932" r="25" fill="#38bdf8" stroke="#082f49" stroke-width="6"/>
+    <circle cx="1470" cy="1379" r="25" fill="#38bdf8" stroke="#082f49" stroke-width="6"/>
+    <circle cx="1470" cy="485" r="28" fill="#22c55e" stroke="#052e2b" stroke-width="6"/>
+    <circle cx="1515" cy="932" r="28" fill="#38bdf8" stroke="#082f49" stroke-width="6"/>
+    <circle cx="1515" cy="1379" r="28" fill="#facc15" stroke="#422006" stroke-width="6"/>
+  </g>
+
+  <g font-family="Inter, Arial, sans-serif" filter="url(#soft-shadow)">
+    <rect x="1260" y="314" width="402" height="70" rx="16" fill="#052e2b" opacity="0.96"/>
+    <text x="1292" y="361" fill="#bbf7d0" font-size="31" font-weight="800">R1 and R2 seated</text>
+    <rect x="1036" y="1116" width="564" height="72" rx="16" fill="#111827" opacity="0.96"/>
+    <text x="1070" y="1164" fill="#f8fafc" font-size="31" font-weight="800">Arduino leads verified</text>
+    <g transform="translate(1656 236)">
+      <circle cx="48" cy="48" r="48" fill="#22c55e" stroke="#052e2b" stroke-width="8"/>
+      <path d="M27 49 L43 65 L72 31" fill="none" stroke="#052e2b" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

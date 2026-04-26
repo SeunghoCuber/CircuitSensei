@@ -7,11 +7,18 @@ interface BreadboardViewProps {
   components: string[];
   currentStep: number;
   planCount: number;
+  annotationImageSrc?: string | null;
 }
 
 const REFERENCE_IMAGE_SRC = "/api/reference-image";
 
-export function BreadboardView({ connected, components, currentStep, planCount }: BreadboardViewProps) {
+export function BreadboardView({
+  connected,
+  components,
+  currentStep,
+  planCount,
+  annotationImageSrc,
+}: BreadboardViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(true);
@@ -41,6 +48,16 @@ export function BreadboardView({ connected, components, currentStep, planCount }
   useEffect(() => {
     let cancelled = false;
     let currentBlob = "";
+
+    if (annotationImageSrc) {
+      setDisplaySrc((prev) => {
+        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+        return annotationImageSrc;
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const resetToReference = () => {
       if (currentBlob) {
@@ -86,7 +103,7 @@ export function BreadboardView({ connected, components, currentStep, planCount }
       clearInterval(id);
       if (currentBlob) URL.revokeObjectURL(currentBlob);
     };
-  }, [currentStep, planCount]);
+  }, [annotationImageSrc, currentStep, planCount]);
 
   return (
     <Card className="flex-1 bg-zinc-900 border-zinc-800 p-4 flex flex-col gap-3 overflow-hidden">

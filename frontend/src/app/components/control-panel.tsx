@@ -5,6 +5,7 @@ import { Card } from "./ui/card";
 
 interface ControlPanelProps {
   onSend: (text: string) => void;
+  disabled?: boolean;
 }
 
 type RecognitionState = "idle" | "listening" | "processing" | "unsupported";
@@ -61,7 +62,7 @@ function normalizeTranscript(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-export function ControlPanel({ onSend }: ControlPanelProps) {
+export function ControlPanel({ onSend, disabled = false }: ControlPanelProps) {
   const [recognitionState, setRecognitionState] = useState<RecognitionState>(() =>
     getSpeechRecognitionConstructor() ? "idle" : "unsupported",
   );
@@ -83,6 +84,7 @@ export function ControlPanel({ onSend }: ControlPanelProps) {
   }, []);
 
   const startListening = () => {
+    if (disabled) return;
     if (recognitionState !== "idle") return;
 
     const SpeechRecognition = getSpeechRecognitionConstructor();
@@ -171,6 +173,8 @@ export function ControlPanel({ onSend }: ControlPanelProps) {
     ? "Listening..."
     : isProcessing
     ? "Processing..."
+    : disabled
+    ? "Demo complete"
     : isUnsupported
     ? "Speech unavailable"
     : "Speak";
@@ -179,7 +183,7 @@ export function ControlPanel({ onSend }: ControlPanelProps) {
     <Card className="bg-zinc-900 border-zinc-800 p-2">
       <Button
         type="button"
-        disabled={isProcessing || isUnsupported}
+        disabled={disabled || isProcessing || isUnsupported}
         onPointerDown={startListening}
         onPointerUp={stopListening}
         onPointerLeave={stopListening}

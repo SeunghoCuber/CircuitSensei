@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 2162 1484" width="2162" height="1484">
+  <defs>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+  <image href="/breadboard-default.jpg" xlink:href="/breadboard-default.jpg" width="2162" height="1484" preserveAspectRatio="xMidYMid slice"/>
+  <rect x="0" y="0" width="2162" height="1484" fill="#020617" opacity="0.1"/>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="1038" y="54" width="1010" height="152" rx="16" fill="#111827" opacity="0.97"/>
+    <rect x="1038" y="54" width="1010" height="152" rx="16" fill="none" stroke="#facc15" stroke-width="4" opacity="0.8"/>
+    <text x="1078" y="112" fill="#fde68a" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="700">Mock Arduino measurement complete</text>
+    <text x="1078" y="164" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="28">D9 HIGH -> A0 reads about 3.4 V.</text>
+  </g>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft-shadow)">
+    <path d="M1425 485 C1360 600 1360 815 1425 932" stroke="#22c55e" stroke-width="14" opacity="0.7"/>
+    <path d="M1470 932 C1548 1030 1548 1280 1470 1379" stroke="#38bdf8" stroke-width="14" opacity="0.7"/>
+    <path d="M913 868 C1112 795 1240 575 1470 485" stroke="#22c55e" stroke-width="14" opacity="0.7"/>
+    <path d="M63 1074 C430 1020 1040 1038 1515 932" stroke="#38bdf8" stroke-width="14" opacity="0.82"/>
+    <path d="M63 895 C440 1210 1000 1430 1515 1379" stroke="#facc15" stroke-width="14" opacity="0.7"/>
+  </g>
+
+  <g font-family="Inter, Arial, sans-serif" filter="url(#soft-shadow)">
+    <circle cx="1515" cy="932" r="42" fill="#38bdf8" stroke="#082f49" stroke-width="9"/>
+    <rect x="1588" y="828" width="306" height="132" rx="18" fill="#082f49" opacity="0.97"/>
+    <text x="1624" y="884" fill="#bae6fd" font-size="30" font-weight="800">A0 midpoint</text>
+    <text x="1624" y="930" fill="#f8fafc" font-size="34" font-weight="900">3.4 V</text>
+
+    <circle cx="913" cy="868" r="32" fill="#22c55e" stroke="#052e2b" stroke-width="7"/>
+    <rect x="658" y="740" width="244" height="104" rx="16" fill="#052e2b" opacity="0.96"/>
+    <text x="694" y="785" fill="#bbf7d0" font-size="28" font-weight="800">D9 HIGH</text>
+    <text x="694" y="826" fill="#f8fafc" font-size="26">5 V source</text>
+
+    <circle cx="1515" cy="1379" r="32" fill="#facc15" stroke="#422006" stroke-width="7"/>
+    <rect x="1590" y="1288" width="246" height="74" rx="16" fill="#422006" opacity="0.96"/>
+    <text x="1628" y="1337" fill="#fef3c7" font-size="30" font-weight="800">GND return</text>
+
+    <rect x="1148" y="1114" width="510" height="86" rx="18" fill="#052e2b" opacity="0.97"/>
+    <text x="1184" y="1168" fill="#a7f3d0" font-size="32" font-weight="900">PASS: divider in range</text>
+  </g>
+</svg>
