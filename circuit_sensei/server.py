@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 import yaml
-from fastapi import FastAPI, File, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -73,7 +73,6 @@ ELEVENLABS_API_KEY: str = os.environ.get("ELEVENLABS_API_KEY", "")
 _el_cfg = config.get("elevenlabs", {})
 ELEVENLABS_VOICE_ID: str = str(_el_cfg.get("voice_id", "JBFqnCBsd6RMkjVDRZzb"))
 ELEVENLABS_TTS_MODEL: str = str(_el_cfg.get("tts_model", "eleven_turbo_v2_5"))
-ELEVENLABS_STT_MODEL: str = str(_el_cfg.get("stt_model", "scribe_v1"))
 
 session, agent = _build_agent(config)
 
@@ -209,24 +208,6 @@ async def text_to_speech(request: Request) -> Response:
     if resp.status_code != 200:
         return Response(status_code=resp.status_code)
     return Response(content=resp.content, media_type="audio/mpeg")
-
-
-@app.post("/api/stt")
-async def speech_to_text(file: UploadFile = File(...)) -> dict[str, str]:
-    """Proxy audio to ElevenLabs Scribe STT and return the transcript."""
-    if not ELEVENLABS_API_KEY:
-        return {"text": ""}
-    audio_bytes = await file.read()
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            "https://api.elevenlabs.io/v1/speech-to-text",
-            headers={"xi-api-key": ELEVENLABS_API_KEY},
-            files={"file": (file.filename or "audio.webm", audio_bytes, file.content_type or "audio/webm")},
-            data={"model_id": ELEVENLABS_STT_MODEL},
-        )
-    if resp.status_code != 200:
-        return {"text": ""}
-    return {"text": str(resp.json().get("text", ""))}
 
 
 @app.websocket("/ws")
