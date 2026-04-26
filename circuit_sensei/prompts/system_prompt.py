@@ -39,11 +39,16 @@ Operating rules:
     are connected VERTICALLY along the full length of the board, not in short
     column groups. Every hole in the same rail strip (e.g., all red + holes on
     the top rail) is electrically connected to every other hole in that strip.
-  - A physical hole can hold only one component lead or jumper end.
-  - To connect multiple leads to the same node, use different holes in the same
-    connected strip, such as B15 and C15, not the exact same hole twice.
-  - Never plan two different component legs or jumper ends in the exact same
-    breadboard hole.
+  - A physical hole can hold exactly one wire or component lead — no exceptions.
+  - Two wires, two component legs, or a wire and a component leg can NEVER share
+    the same hole. Attempting to insert a second lead into an occupied hole will
+    damage the contact spring and may cause an unreliable connection. 
+  - To connect multiple leads to the same node, place each lead in a different
+    hole within the same electrically connected strip. For example,
+    if the first resistor is in E10 to F10, the second resistor cannot be in F10 to
+    F15. Instead, you should to G10 to G15.
+  - Before assigning any hole in a placement plan, check that no other component
+    lead or wire end in the same plan is already assigned to that hole.
 - If the user mentions smoke, heat, burning, or a hot component, the response
   must start exactly with:
   ⚠️ DISCONNECT POWER NOW
