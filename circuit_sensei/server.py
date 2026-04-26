@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from circuit_sensei.agent import AgentSession, CircuitSenseiAgent, SessionState, create_model_client
+from circuit_sensei.hardware.arduino_tester import normalize_serial_port
+from circuit_sensei.hardware.camera import image_size_from_config
 from circuit_sensei.hardware.overlay import BreadboardGeometry
 from circuit_sensei.tools import CircuitSenseiTools, config_bool
 
@@ -35,7 +37,7 @@ def _build_agent(config: dict[str, Any]) -> tuple[AgentSession, CircuitSenseiAge
             "rows": geometry.rows,
             "columns": geometry.columns,
         },
-        arduino_port=str(config.get("hardware", {}).get("serial_port", "")),
+        arduino_port=normalize_serial_port(config.get("hardware", {}).get("serial_port")),
     )
     tools = CircuitSenseiTools(config)
     model_client = create_model_client(config)

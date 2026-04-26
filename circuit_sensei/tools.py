@@ -14,7 +14,7 @@ from typing import Any, Callable
 from rich.console import Console
 from rich.panel import Panel
 
-from circuit_sensei.hardware.arduino_tester import ArduinoTester, ArduinoUnavailableError
+from circuit_sensei.hardware.arduino_tester import ArduinoTester, ArduinoUnavailableError, normalize_serial_port
 from circuit_sensei.hardware.camera import CameraCapture, camera_settings_from_config, image_size_from_config
 from circuit_sensei.hardware.overlay import AnnotationStyle, BreadboardGeometry, FrameAnnotator
 
@@ -167,7 +167,7 @@ class CircuitSenseiTools:
         )
         self.annotator = FrameAnnotator(self.geometry, AnnotationStyle.from_config(config))
         self.arduino = ArduinoTester(
-            port=str(hardware.get("serial_port", "/dev/ttyACM0")),
+            port=normalize_serial_port(hardware.get("serial_port")),
             baud_rate=int(hardware.get("baud_rate", 115200)),
             timeout_seconds=float(hardware.get("serial_timeout_seconds", 2.0)),
             mock_mode=self.mock_mode,
@@ -359,7 +359,7 @@ class CircuitSenseiTools:
             },
             "arduino_connect": {
                 "name": "arduino_connect",
-                "description": "Connect to Arduino over USB serial.",
+                "description": "Connect to Arduino over USB serial. Omit port or pass auto to detect it.",
                 "parameters": {
                     "type": "object",
                     "properties": {"port": {"type": "string"}},

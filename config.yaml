@@ -7,7 +7,8 @@ gemini:
 hardware:
   mock_mode: false
   camera_index: 1
-  serial_port: /dev/cu.usbmodem21301
+  # Use "auto" to detect the connected Arduino. Set an explicit port to override.
+  serial_port: auto
   baud_rate: 115200
   serial_timeout_seconds: 2.0
 

@@ -90,7 +90,7 @@ Important real-mode settings:
 hardware:
   mock_mode: false
   camera_index: 0
-  serial_port: /dev/cu.usbmodem21301
+  serial_port: auto
   baud_rate: 115200
   serial_timeout_seconds: 2.0
 
@@ -113,9 +113,11 @@ paths:
 Notes:
 
 - `hardware.mock_mode: false` is required for the real workflow.
-- `hardware.serial_port` must match the Arduino port.
+- `hardware.serial_port: auto` detects common Arduino, CH340, CP210x, and FTDI
+  USB serial ports.
 - On macOS, Arduino ports usually look like `/dev/cu.usbmodem21301` or
-  `/dev/cu.usbserial-*`.
+  `/dev/cu.usbserial-*`; set one explicitly only if autodetection chooses the
+  wrong device.
 - `camera.backend: avfoundation` usually works best on macOS.
 - `overlay.annotation_source: reference` means guidance is drawn on a generated
   breadboard diagram. Set it to `camera` if you want guidance drawn over the live
@@ -140,7 +142,7 @@ python -m pytest
 Expected result:
 
 ```text
-23 passed
+All tests pass.
 ```
 
 Check one real camera capture:
@@ -172,7 +174,7 @@ read_digital_2: {"status": "ok", "value": ...}
 button_test: {"status": "ok", ...}
 ```
 
-If the port is different:
+To force a specific port:
 
 ```bash
 python scripts/arduino_smoke_test.py --port /dev/cu.YOUR_PORT
@@ -644,7 +646,7 @@ open /tmp/sensei_frame.jpg
 Symptoms:
 
 ```text
-Arduino unavailable on /dev/cu.usbmodem21301.
+No Arduino serial port detected.
 ```
 
 Try:
@@ -652,12 +654,13 @@ Try:
 - Unplug/replug the Arduino.
 - Close Arduino IDE Serial Monitor.
 - Run `ls /dev/cu.*`.
-- Update `hardware.serial_port` in `config.yaml`.
+- Leave `hardware.serial_port: auto`, or set it explicitly in `config.yaml` if
+  multiple matching boards are attached.
 - Flash `circuit_sensei/arduino/circuit_tester.ino`.
 - Run:
 
 ```bash
-python scripts/arduino_smoke_test.py --port /dev/cu.YOUR_PORT
+python scripts/arduino_smoke_test.py
 ```
 
 ### Gemini Vision Rejects A Correct Placement

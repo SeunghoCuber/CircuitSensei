@@ -1404,8 +1404,9 @@ class CircuitSenseiAgent:
         if not connect.get("ok"):
             text = (
                 "I could not connect to the Arduino yet, so I am staying in the test checkpoint. "
-                f"Expected serial port: {connect.get('expected_port', self.session.arduino_port)}.\n\n"
-                "Check the USB cable, Arduino IDE serial monitor, and config.yaml serial_port, then say **retry** to try again."
+                f"Serial port target: {connect.get('expected_port', self.session.arduino_port or 'auto')}.\n\n"
+                "Check the USB cable and Arduino IDE serial monitor, then say **retry** to try again. "
+                "If autodetection picks the wrong device, set hardware.serial_port in config.yaml explicitly."
             )
             self.session.add_history("assistant", text)
             return text

@@ -173,9 +173,13 @@ Edit `config.yaml`:
 hardware:
   mock_mode: false
   camera_index: 0
-  serial_port: /dev/ttyACM0
+  serial_port: auto
   baud_rate: 115200
 ```
+
+`serial_port: auto` detects common Arduino, CH340, CP210x, and FTDI USB serial
+ports. If your machine has multiple matching boards attached, set an explicit
+port such as `/dev/ttyACM0`, `/dev/cu.usbmodem11101`, or `COM3`.
 
 Then start the backend without mock mode:
 

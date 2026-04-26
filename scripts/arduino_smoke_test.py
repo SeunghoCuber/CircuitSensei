@@ -18,7 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from circuit_sensei.hardware.arduino_tester import ArduinoTester  # noqa: E402
+from circuit_sensei.hardware.arduino_tester import ArduinoTester, normalize_serial_port  # noqa: E402
 
 
 def load_hardware_config(path: Path) -> dict[str, Any]:
@@ -40,13 +40,9 @@ def main() -> int:
     args = parser.parse_args()
 
     hardware = load_hardware_config(Path(args.config))
-    port = args.port or str(hardware.get("serial_port", ""))
+    port = normalize_serial_port(args.port or hardware.get("serial_port"))
     baud = args.baud or int(hardware.get("baud_rate", 115200))
     timeout = args.timeout or float(hardware.get("serial_timeout_seconds", 2.0))
-
-    if not port:
-        print("No serial port configured. Pass --port or set hardware.serial_port in config.yaml.", file=sys.stderr)
-        return 2
 
     tester = ArduinoTester(port=port, baud_rate=baud, timeout_seconds=timeout, mock_mode=False)
     try:
