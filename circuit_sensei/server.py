@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 import yaml
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -70,6 +70,8 @@ VERIFY_START_PHRASES: tuple[str, ...] = (
     "Perfect, starting the camera check now. I will confirm as soon as it finishes.",
     "All right, I am validating this step now. Hang tight for a few seconds.",
 )
+
+AVAILABLE_MODELS: list[str] = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemma-4-31b-it"]
 
 ELEVENLABS_API_KEY: str = os.environ.get("ELEVENLABS_API_KEY", "")
 _el_cfg = config.get("elevenlabs", {})
@@ -210,6 +212,24 @@ async def text_to_speech(request: Request) -> Response:
     if resp.status_code != 200:
         return Response(status_code=resp.status_code)
     return Response(content=resp.content, media_type="audio/mpeg")
+
+
+@app.get("/api/model")
+async def get_model() -> dict[str, Any]:
+    """Return the currently active LLM model name."""
+    return {"model": config.get("gemini", {}).get("model", AVAILABLE_MODELS[0])}
+
+
+@app.post("/api/model")
+async def set_model(request: Request) -> dict[str, Any]:
+    """Switch the active LLM model; rebuilds the model client immediately."""
+    body = await request.json()
+    model_name = str(body.get("model", ""))
+    if model_name not in AVAILABLE_MODELS:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {model_name!r}")
+    config.setdefault("gemini", {})["model"] = model_name
+    agent.model_client = create_model_client(config)
+    return {"model": model_name}
 
 
 @app.websocket("/ws")

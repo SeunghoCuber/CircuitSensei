@@ -5,6 +5,15 @@ import { Card } from "./ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { ChatMessage } from "../hooks/use-agent-socket";
 
+const AVAILABLE_MODELS = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemma-4-31b-it"] as const;
+type ModelId = typeof AVAILABLE_MODELS[number];
+
+const MODEL_LABELS: Record<ModelId, string> = {
+  "gemini-2.5-flash": "2.5 Flash",
+  "gemini-3-flash-preview": "3 Flash Preview",
+  "gemma-4-31b-it": "Gemma 4",
+};
+
 interface DisplayMessage {
   role: "agent" | "user";
   text: string;
@@ -37,6 +46,26 @@ export function CameraView({
   const [displayed, setDisplayed] = useState<DisplayMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const processedRef = useRef(0);
+  const [selectedModel, setSelectedModel] = useState<ModelId>("gemma-4-31b-it");
+
+  useEffect(() => {
+    fetch("/api/model")
+      .then((r) => r.json())
+      .then((data) => {
+        if (AVAILABLE_MODELS.includes(data.model)) setSelectedModel(data.model as ModelId);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const model = e.target.value as ModelId;
+    setSelectedModel(model);
+    fetch("/api/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    }).catch(() => {});
+  };
 
   // Typewriter effect: process new messages as they arrive
   useEffect(() => {
@@ -91,9 +120,19 @@ export function CameraView({
   return (
     <Card className="w-80 bg-zinc-900 border-zinc-800 p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <MessageCircle className="size-4 text-emerald-400" />
           <span className="text-sm text-zinc-100">Agent Chat</span>
+          <span className="text-zinc-600 text-xs select-none">·</span>
+          <select
+            value={selectedModel}
+            onChange={handleModelChange}
+            className="text-xs text-zinc-400 bg-transparent border-none outline-none cursor-pointer hover:text-zinc-200 focus:text-zinc-200 transition-colors appearance-none"
+          >
+            {AVAILABLE_MODELS.map((m) => (
+              <option key={m} value={m} className="bg-zinc-900 text-zinc-200">{MODEL_LABELS[m]}</option>
+            ))}
+          </select>
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
