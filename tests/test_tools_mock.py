@@ -123,12 +123,44 @@ def test_agent_derives_power_rail_annotations_when_holes_missing(tmp_path) -> No
 
     annotations = agent._annotations_for_step(step)
 
+    assert any(point.get("arduino_pin") == "5V" for point in annotations.get("points", []))
     assert any(point.get("rail") == "positive" for point in annotations.get("points", []))
     assert len(annotations.get("arrows", [])) == 1
+    assert annotations["arrows"][0]["from"] == {"arduino_pin": "5V"}
+    assert annotations["arrows"][0]["to"]["rail"] == "positive"
 
     rendered = tools.annotate_frame(annotations)
     assert rendered["ok"] is True
-    assert rendered["points"] >= 1
+    assert rendered["points"] >= 2
+
+
+def test_agent_derives_arduino_to_breadboard_wire_annotations(tmp_path) -> None:
+    tools = CircuitSenseiTools(_config(tmp_path), console=Console(file=None))
+    agent = CircuitSenseiAgent(
+        session=AgentSession(circuit_goal="blink an LED", inventory=["Arduino", "jumper wire"]),
+        tools=tools,
+        model_client=MockGeminiModelClient(),
+    )
+
+    step = {
+        "step": 1,
+        "instruction": "Connect Arduino D9 to column 10 and Arduino GND to column 25.",
+        "annotations": {"message": "Connect D9 and GND."},
+    }
+
+    annotations = agent._annotations_for_step(step)
+
+    assert {"arduino_pin": "D9", "label": "D9"} in annotations["points"]
+    assert {"arduino_pin": "GND", "label": "GND"} in annotations["points"]
+    assert {"row": "J", "col": 10, "label": "J10"} in annotations["points"]
+    assert {"row": "J", "col": 25, "label": "J25"} in annotations["points"]
+    assert annotations["arrows"][0]["from"] == {"arduino_pin": "D9"}
+    assert annotations["arrows"][0]["to"] == {"row": "J", "col": 10}
+    assert annotations["arrows"][1]["from"] == {"arduino_pin": "GND"}
+    assert annotations["arrows"][1]["to"] == {"row": "J", "col": 25}
+
+    rendered = tools.annotate_frame(annotations)
+    assert rendered["ok"] is True
 
 
 def test_mock_arduino_voltage_divider(tmp_path) -> None:
@@ -190,5 +222,13 @@ def _config(tmp_path):
             "bottom_right": [590, 310],
             "rows": list("ABCDEFGHIJ"),
             "columns": 63,
+        },
+        "arduino": {
+            "pins": {
+                "5V": [20, 80],
+                "GND": [20, 100],
+                "D9": [20, 120],
+                "A0": [20, 140],
+            }
         },
     }
