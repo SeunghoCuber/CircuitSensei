@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 import yaml
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -60,7 +60,8 @@ if "MOCK_MODE" in os.environ:
     )
 
 ANNOTATED_PATH: str = config.get("paths", {}).get("annotated_path", "/tmp/sensei_annotated.jpg")
-REFERENCE_PATH: str = "/tmp/sensei_reference.jpg"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+REFERENCE_PATH: str = str(PROJECT_ROOT / "arduino_uno.png")
 
 VERIFY_START_PHRASES: tuple[str, ...] = (
     "Okay, give me a second to verify this step with the camera, then we can move on.",
@@ -87,21 +88,58 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-async def _generate_reference_image() -> None:
-    """Pre-generate the plain breadboard image used as the default view."""
-    agent.tools.camera.write_reference_frame(REFERENCE_PATH, image_size_from_config(config))
+async def _clear_stale_annotation_on_startup() -> None:
+    """Clear stale guidance from older runs before the first user step."""
+
+    Path(ANNOTATED_PATH).unlink(missing_ok=True)
 
 
 def _read_image(path: str) -> Response | None:
     if os.path.exists(path):
+        media_type = "image/png" if path.lower().endswith(".png") else "image/jpeg"
         with open(path, "rb") as f:
             data = f.read()
         return Response(
             content=data,
-            media_type="image/jpeg",
+            media_type=media_type,
             headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
         )
     return None
+
+
+def _latest_annotation_step() -> int | None:
+    """Return the step number for the most recent successful annotation."""
+
+    prefix = "TOOL_RESULT annotate_frame: "
+    for entry in reversed(session.conversation_history):
+        if entry.get("role") != "tool" or entry.get("name") != "annotate_frame":
+            continue
+        content = str(entry.get("content", ""))
+        if not content.startswith(prefix):
+            continue
+        try:
+            payload = json.loads(content[len(prefix):])
+        except json.JSONDecodeError:
+            continue
+        if not payload.get("ok"):
+            continue
+        annotations = payload.get("annotations")
+        if not isinstance(annotations, dict):
+            continue
+        try:
+            return int(annotations["step"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
+
+
+def _annotation_matches_current_step(requested_step: int | None = None) -> bool:
+    if not session.placement_plan:
+        return False
+    current_step = session.current_step + 1
+    if requested_step is not None and requested_step != current_step:
+        return False
+    return _latest_annotation_step() == current_step
 
 
 def _frontend_session_payload() -> dict[str, Any]:
@@ -134,9 +172,9 @@ async def get_reference_image() -> Response:
 
 
 @app.get("/api/annotated-image")
-async def get_annotated_image() -> Response:
+async def get_annotated_image(step: int | None = Query(default=None)) -> Response:
     """Serve the latest annotated breadboard guidance image."""
-    if not session.placement_plan:
+    if not _annotation_matches_current_step(step):
         return Response(status_code=404)
     resp = _read_image(ANNOTATED_PATH)
     if resp:
@@ -215,7 +253,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     "type": "message",
                     "role": "agent",
                     "text": response,
-                    "image_updated": os.path.exists(ANNOTATED_PATH),
+                    "image_updated": _annotation_matches_current_step(),
                     **_frontend_session_payload(),
                 }))
                 continue
@@ -235,7 +273,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     "type": "progress",
                     "role": "agent",
                     "text": _verification_start_phrase(),
-                    "image_updated": os.path.exists(ANNOTATED_PATH),
+                    "image_updated": _annotation_matches_current_step(),
                     **_frontend_session_payload(),
                 }))
 
@@ -244,12 +282,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 None, agent.handle_user_message, user_text
             )
 
-            image_updated = os.path.exists(ANNOTATED_PATH)
             await websocket.send_text(json.dumps({
                 "type": "message",
                 "role": "agent",
                 "text": response,
-                "image_updated": image_updated,
+                "image_updated": _annotation_matches_current_step(),
                 **_frontend_session_payload(),
             }))
 

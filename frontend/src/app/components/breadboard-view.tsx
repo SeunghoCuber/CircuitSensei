@@ -5,13 +5,17 @@ import { Card } from "./ui/card";
 interface BreadboardViewProps {
   connected: boolean;
   components: string[];
+  currentStep: number;
+  planCount: number;
 }
 
-export function BreadboardView({ connected, components }: BreadboardViewProps) {
+const REFERENCE_IMAGE_SRC = "/api/reference-image";
+
+export function BreadboardView({ connected, components, currentStep, planCount }: BreadboardViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(true);
-  const [displaySrc, setDisplaySrc] = useState("/breadboard-default.jpg");
+  const [displaySrc, setDisplaySrc] = useState(REFERENCE_IMAGE_SRC);
 
   // Webcam
   useEffect(() => {
@@ -33,14 +37,30 @@ export function BreadboardView({ connected, components }: BreadboardViewProps) {
     };
   }, [cameraOn]);
 
-  // Poll annotated image every 2 s using fetch so the single download feeds the <img> directly via blob URL
+  // Poll the current step's annotation; fall back to the Arduino + breadboard reference.
   useEffect(() => {
     let cancelled = false;
-    let prevBlob = "";
+    let currentBlob = "";
+
+    const resetToReference = () => {
+      if (currentBlob) {
+        URL.revokeObjectURL(currentBlob);
+        currentBlob = "";
+      }
+      setDisplaySrc(REFERENCE_IMAGE_SRC);
+    };
+
+    resetToReference();
+    if (planCount === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/annotated-image?v=${Date.now()}`);
+        const step = currentStep + 1;
+        const res = await fetch(`/api/annotated-image?step=${step}&v=${Date.now()}`);
         if (cancelled) return;
         if (res.ok) {
           const blob = await res.blob();
@@ -50,13 +70,12 @@ export function BreadboardView({ connected, components }: BreadboardViewProps) {
             if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
             return url;
           });
-          prevBlob = url;
+          currentBlob = url;
         } else {
-          if (prevBlob) { URL.revokeObjectURL(prevBlob); prevBlob = ""; }
-          setDisplaySrc("/breadboard-default.jpg");
+          resetToReference();
         }
       } catch {
-        if (!cancelled) setDisplaySrc("/breadboard-default.jpg");
+        if (!cancelled) resetToReference();
       }
     };
 
@@ -65,9 +84,9 @@ export function BreadboardView({ connected, components }: BreadboardViewProps) {
     return () => {
       cancelled = true;
       clearInterval(id);
-      if (prevBlob) URL.revokeObjectURL(prevBlob);
+      if (currentBlob) URL.revokeObjectURL(currentBlob);
     };
-  }, []);
+  }, [currentStep, planCount]);
 
   return (
     <Card className="flex-1 bg-zinc-900 border-zinc-800 p-4 flex flex-col gap-3 overflow-hidden">

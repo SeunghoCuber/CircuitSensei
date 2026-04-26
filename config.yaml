@@ -46,7 +46,7 @@ overlay:
 
 elevenlabs:
   # Get your voice_id from elevenlabs.io/app/voice-lab
-  voice_id: "UgBBYS2sOqTuMpoF3BR0"
+  voice_id: "fvVBPXuE7f1iX3dZLKFy"
   tts_model: "eleven_turbo_v2_5"      # lowest latency (~400ms)
 
 paths:
