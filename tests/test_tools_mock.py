@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import yaml
 from rich.console import Console
 
 from circuit_sensei.agent import AgentSession, CircuitSenseiAgent, MockGeminiModelClient
@@ -206,6 +207,21 @@ def test_breadboard_geometry_models_terminal_strips() -> None:
     assert geometry.node_key("E", 10) == ("top", 10)
     assert geometry.node_key("F", 10) == ("bottom", 10)
     assert geometry.connected_rows("B") == ("A", "B", "C", "D", "E")
+
+
+def test_production_arduino_digital_header_calibration() -> None:
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    pins = BreadboardGeometry.from_config(config).arduino_pins
+
+    assert pins["SDA"] == (913, 510)
+    assert pins["SCL"] == (913, 555)
+    assert pins["AREF"] == (913, 600)
+    assert pins["D13"] == (913, 689)
+    assert pins["D11"] == (913, 778)
+    assert pins["D10"] == (913, 823)
+    assert pins["D9"] == (913, 868)
+    assert pins["D8"] == (913, 912)
 
 
 def _config(tmp_path):
