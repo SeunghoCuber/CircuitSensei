@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from circuit_sensei.agent import AgentSession, CircuitSenseiAgent, create_model_client
+from circuit_sensei.hardware.arduino_tester import normalize_serial_port
 from circuit_sensei.hardware.overlay import BreadboardGeometry
 from circuit_sensei.tools import CircuitSenseiTools, config_bool
 
@@ -64,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
             "rows": geometry.rows,
             "columns": geometry.columns,
         },
-        arduino_port=str(config.get("hardware", {}).get("serial_port", "")),
+        arduino_port=normalize_serial_port(config.get("hardware", {}).get("serial_port")),
     )
     if args.goal:
         session.circuit_goal = args.goal

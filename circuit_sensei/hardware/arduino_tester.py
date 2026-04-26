@@ -12,6 +12,30 @@ class ArduinoUnavailableError(RuntimeError):
     """Raised when Arduino serial hardware is required but unavailable."""
 
 
+AUTO_PORT_VALUES = {"", "auto", "detect", "default"}
+KNOWN_ARDUINO_VIDS = {0x2341, 0x2A03}
+USB_SERIAL_VIDS = {0x1A86, 0x10C4, 0x0403, 0x239A}
+EXCLUDED_PORT_KEYWORDS = ("bluetooth", "incoming-port")
+ARDUINO_KEYWORDS = ("arduino", "genuino", "uno", "usbmodem", "ttyacm")
+USB_SERIAL_KEYWORDS = ("ch340", "ch341", "cp210", "ftdi", "usb serial", "usb2.0-serial", "usbserial")
+
+
+@dataclass(frozen=True)
+class SerialPortCandidate:
+    """A ranked serial device that may be an Arduino."""
+
+    device: str
+    label: str
+    score: int
+
+
+def normalize_serial_port(port: Any, default: str = "auto") -> str:
+    """Return a usable serial-port config value."""
+
+    text = str(port or "").strip()
+    return text or default
+
+
 @dataclass
 class ArduinoTester:
     """Send structured commands to the Circuit-Sensei Arduino sketch."""
@@ -32,7 +56,7 @@ class ArduinoTester:
     def connect(self, port: str | None = None) -> dict[str, Any]:
         """Connect to the Arduino over USB serial, or create a mock connection."""
 
-        if port:
+        if port is not None:
             self.port = port
         if self.mock_mode:
             return {"ok": True, "port": self.port, "mock": True, "message": "Mock Arduino connected."}
@@ -42,16 +66,119 @@ class ArduinoTester:
         except ImportError as exc:
             raise ArduinoUnavailableError("pyserial is not installed. Install requirements.txt.") from exc
 
-        try:
-            self._serial = serial.Serial(self.port, self.baud_rate, timeout=self.timeout_seconds)
-            time.sleep(2.0)
-            self._clear_serial_input()
-        except Exception as exc:  # pragma: no cover - depends on local hardware
-            raise ArduinoUnavailableError(
-                f"Arduino unavailable on {self.port}. Check the USB cable, board, and expected serial port."
-            ) from exc
+        attempted: list[str] = []
+        failures: list[str] = []
+        ports = self._candidate_ports(serial)
+        if not ports:
+            raise ArduinoUnavailableError("No Arduino serial port detected. Connect the Arduino over USB and retry.")
 
-        return {"ok": True, "port": self.port, "mock": False, "message": "Arduino connected."}
+        for candidate in ports:
+            attempted.append(candidate)
+            try:
+                self._serial = serial.Serial(candidate, self.baud_rate, timeout=self.timeout_seconds)
+                self.port = candidate
+                time.sleep(2.0)
+                self._clear_serial_input()
+                return {"ok": True, "port": self.port, "mock": False, "message": "Arduino connected."}
+            except Exception as exc:  # pragma: no cover - depends on local hardware
+                if self._serial is not None:
+                    try:
+                        self._serial.close()
+                    except Exception:
+                        pass
+                self._serial = None
+                failures.append(f"{candidate}: {exc}")
+
+        detail = "; ".join(failures) or ", ".join(attempted)
+        raise ArduinoUnavailableError(
+            "Arduino unavailable on detected serial port"
+            f"{'s' if len(attempted) != 1 else ''}: {', '.join(attempted)}. "
+            "Check the USB cable, board, and Arduino IDE serial monitor."
+            f" Details: {detail}"
+        )
+
+    def _candidate_ports(self, serial_module: Any) -> list[str]:
+        """Return serial ports to attempt, preserving explicit overrides."""
+
+        explicit_port = str(self.port or "").strip()
+        if explicit_port.lower() not in AUTO_PORT_VALUES:
+            return [explicit_port]
+
+        candidates = self.discover_ports(serial_module)
+        return [candidate.device for candidate in candidates]
+
+    @classmethod
+    def discover_ports(cls, serial_module: Any | None = None) -> list[SerialPortCandidate]:
+        """Discover likely Arduino serial ports using pyserial list_ports metadata."""
+
+        try:
+            list_ports = cls._list_ports_module(serial_module)
+            ports = list(list_ports.comports())
+        except Exception as exc:
+            raise ArduinoUnavailableError("Could not inspect serial ports with pyserial.") from exc
+
+        candidates = [candidate for port_info in ports if (candidate := cls._rank_port(port_info))]
+        candidates.sort(key=lambda candidate: (-candidate.score, candidate.device))
+        return candidates
+
+    @staticmethod
+    def _list_ports_module(serial_module: Any | None = None) -> Any:
+        """Return pyserial's list_ports module, supporting test doubles."""
+
+        if serial_module is not None:
+            tools = getattr(serial_module, "tools", None)
+            list_ports = getattr(tools, "list_ports", None)
+            if list_ports is not None:
+                return list_ports
+
+        from serial.tools import list_ports  # type: ignore[import-not-found]
+
+        return list_ports
+
+    @classmethod
+    def _rank_port(cls, port_info: Any) -> SerialPortCandidate | None:
+        """Score a serial port by how Arduino-like it appears."""
+
+        device = str(getattr(port_info, "device", "") or "")
+        if not device:
+            return None
+
+        fields = [
+            device,
+            str(getattr(port_info, "name", "") or ""),
+            str(getattr(port_info, "description", "") or ""),
+            str(getattr(port_info, "manufacturer", "") or ""),
+            str(getattr(port_info, "product", "") or ""),
+            str(getattr(port_info, "hwid", "") or ""),
+        ]
+        label = " ".join(field for field in fields if field)
+        haystack = label.lower()
+        if any(keyword in haystack for keyword in EXCLUDED_PORT_KEYWORDS):
+            return None
+
+        score = 0
+        vid = getattr(port_info, "vid", None)
+        if isinstance(vid, int):
+            if vid in KNOWN_ARDUINO_VIDS:
+                score += 100
+            elif vid in USB_SERIAL_VIDS:
+                score += 70
+
+        if any(keyword in haystack for keyword in ARDUINO_KEYWORDS):
+            score += 80
+        if any(keyword in haystack for keyword in USB_SERIAL_KEYWORDS):
+            score += 55
+        if device.startswith("/dev/cu.usbmodem") or device.startswith("/dev/ttyACM"):
+            score += 40
+        if device.startswith("/dev/cu.usbserial") or device.startswith("/dev/ttyUSB"):
+            score += 30
+
+        if score <= 0:
+            return None
+        if device.startswith("/dev/cu."):
+            score += 10
+
+        return SerialPortCandidate(device=device, label=label, score=score)
 
     def send_command(self, command: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Send a JSON command and return the parsed Arduino response."""
@@ -62,7 +189,7 @@ class ArduinoTester:
             return self._mock_response(payload)
 
         if self._serial is None:
-            raise ArduinoUnavailableError(f"Arduino is not connected. Expected serial port: {self.port}")
+            raise ArduinoUnavailableError(f"Arduino is not connected. Serial port target: {self.port}")
 
         attempts = max(1, self.command_attempts)
         response: dict[str, Any] | None = None
@@ -138,7 +265,7 @@ class ArduinoTester:
         """Send one JSON payload and return the parsed response."""
 
         if self._serial is None:
-            raise ArduinoUnavailableError(f"Arduino is not connected. Expected serial port: {self.port}")
+            raise ArduinoUnavailableError(f"Arduino is not connected. Serial port target: {self.port}")
 
         line = json.dumps(payload, separators=(",", ":")) + "\n"
         self._serial.write(line.encode("utf-8"))
