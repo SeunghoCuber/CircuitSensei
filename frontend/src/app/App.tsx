@@ -12,8 +12,10 @@ export default function App() {
   const {
     connected,
     isLoading,
+    ttsEnabled,
     messages,
     sendMessage,
+    setTtsEnabled,
     agentState,
     plan,
     components,
@@ -43,6 +45,8 @@ export default function App() {
         <CameraView
           messages={messages}
           isLoading={isLoading}
+          ttsEnabled={ttsEnabled}
+          onTtsEnabledChange={setTtsEnabled}
           onSend={sendMessage}
         />
       </div>

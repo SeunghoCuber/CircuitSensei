@@ -47,7 +47,6 @@ elevenlabs:
   # Get your voice_id from elevenlabs.io/app/voice-lab
   voice_id: "fvVBPXuE7f1iX3dZLKFy"
   tts_model: "eleven_turbo_v2_5"      # lowest latency (~400ms)
-  stt_model: "scribe_v1"
 
 paths:
   frame_path: /tmp/sensei_frame.jpg
@@ -64,3 +63,42 @@ breadboard:
   row_x_positions: [1425, 1470, 1515, 1560, 1605, 1750, 1790, 1830, 1875, 1920]
   rows: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
   columns: 30
+  # Power rail pixel x-positions (measured from image; rails are right of row J).
+  right_rail_positive_x: 2028   # red (+) strip
+  right_rail_negative_x: 2133   # blue (-) strip
+
+# Arduino Uno pin pixel coordinates in the reference image.
+# These are first-class annotation endpoints, just like breadboard holes
+# and power rails. Keep these calibrated to frontend/public/breadboard-default.jpg
+# when the reference image changes.
+arduino:
+  pins:
+    IOREF: [62, 674]
+    RESET: [62, 719]
+    3V3:   [62, 765]
+    5V:    [62, 810]
+    GND:   [62, 855]
+    VIN:   [62, 945]
+    A0:    [62, 1066]
+    A1:    [62, 1111]
+    A2:    [62, 1157]
+    A3:    [62, 1202]
+    A4:    [62, 1247]
+    A5:    [62, 1292]
+    AREF:  [912, 512]
+    D13:   [912, 601]
+    D12:   [912, 646]
+    D11:   [912, 691]
+    D10:   [912, 780]
+    D9:    [912, 825]
+    D8:    [912, 870]
+    D7:    [912, 1002]
+    D6:    [912, 1047]
+    D5:    [912, 1092]
+    D4:    [912, 1137]
+    D3:    [912, 1182]
+    D2:    [912, 1227]
+    D1:    [912, 1273]
+    TX:    [912, 1273]
+    D0:    [912, 1318]
+    RX:    [912, 1318]

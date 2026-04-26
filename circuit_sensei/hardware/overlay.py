@@ -63,6 +63,13 @@ class BreadboardGeometry:
     columns: int = 63
     orientation: str = "standard"
     row_x_positions: tuple[int, ...] = ()
+    right_rail_positive_x: int = 0
+    right_rail_negative_x: int = 0
+    arduino_pins: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.arduino_pins is None:
+            object.__setattr__(self, "arduino_pins", {})
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "BreadboardGeometry":
@@ -75,6 +82,14 @@ class BreadboardGeometry:
         columns = int(breadboard.get("columns", 63))
         orientation = str(breadboard.get("orientation", "standard")).lower().strip()
         row_x_positions = tuple(int(x) for x in breadboard.get("row_x_positions", []))
+        right_rail_positive_x = int(breadboard.get("right_rail_positive_x", 0))
+        right_rail_negative_x = int(breadboard.get("right_rail_negative_x", 0))
+        raw_pins = config.get("arduino", {}).get("pins", {})
+        arduino_pins = {
+            str(name).upper(): (int(coords[0]), int(coords[1]))
+            for name, coords in raw_pins.items()
+            if isinstance(coords, (list, tuple)) and len(coords) == 2
+        }
         return cls(
             top_left=top_left,
             bottom_right=bottom_right,
@@ -82,6 +97,9 @@ class BreadboardGeometry:
             columns=columns,
             orientation=orientation,
             row_x_positions=row_x_positions,
+            right_rail_positive_x=right_rail_positive_x,
+            right_rail_negative_x=right_rail_negative_x,
+            arduino_pins=arduino_pins,
         )
 
     def hole_to_pixel(self, row: str, col: int) -> tuple[int, int]:
@@ -169,11 +187,16 @@ class BreadboardGeometry:
         max_x = max(self.hole_to_pixel(row, 1)[0] for row in self.rows)
         if normalized_side not in {"", "left", "right"}:
             raise ValueError(f"Unknown rail side {side!r}; expected 'left' or 'right'.")
-        side_key = normalized_side or "left"
-        if side_key == "left":
-            x = min_x - 58 if normalized_rail == "positive" else min_x - 31
+        side_key = normalized_side or "right"
+        if side_key == "right":
+            if normalized_rail == "positive" and self.right_rail_positive_x:
+                x = self.right_rail_positive_x
+            elif normalized_rail == "negative" and self.right_rail_negative_x:
+                x = self.right_rail_negative_x
+            else:
+                x = max_x + 108 if normalized_rail == "positive" else max_x + 213
         else:
-            x = max_x + 31 if normalized_rail == "positive" else max_x + 58
+            x = min_x - 58 if normalized_rail == "positive" else min_x - 31
         return x, y
 
     def _normalized_col(self, col: int | None) -> int:
@@ -276,6 +299,13 @@ class FrameAnnotator:
         if hole is not None:
             return self.geometry.hole_to_pixel(hole[0], hole[1])
 
+        if "arduino_pin" in location:
+            pin = str(location["arduino_pin"]).upper()
+            coords = self.geometry.arduino_pins.get(pin)
+            if coords is None:
+                raise ValueError(f"Unknown Arduino pin {pin!r}. Known pins: {', '.join(sorted(self.geometry.arduino_pins))}.")
+            return coords
+
         if "rail" in location:
             col = location.get("col")
             rail_col = int(col) if col is not None else None
@@ -286,7 +316,7 @@ class FrameAnnotator:
         if "x" in location and "y" in location:
             return int(location["x"]), int(location["y"])
 
-        raise ValueError("Location must provide row/col, rail, or x/y coordinates.")
+        raise ValueError("Location must provide row/col, arduino_pin, rail, or x/y coordinates.")
 
     def _annotate_with_cv2(
         self,
@@ -499,14 +529,16 @@ class FrameAnnotator:
                 return coordinate
             return f"{label} ({coordinate})" if coordinate not in label else label
 
+        if "arduino_pin" in point:
+            pin = str(point["arduino_pin"]).upper().strip()
+            return label or pin
+
         if "rail" in point:
-            side = str(point.get("side", "left")).lower().strip()
-            side_text = f" {side}" if side else ""
+            rail_text = str(point.get("rail", "rail")).strip()
+            symbol = "+" if rail_text.lower() in {"positive", "+", "plus", "5v", "vcc"} else "-"
             col = point.get("col")
             col_text = f" col {col}" if col not in {None, ""} else ""
-            rail_text = str(point.get("rail", "rail")).strip()
-            rail_label = f"{rail_text}{side_text}{col_text}".strip()
-            return label or rail_label
+            return label or f"{symbol} rail{col_text}"
 
         if "x" in point and "y" in point:
             coordinate = f"({int(point['x'])}, {int(point['y'])})"

@@ -16,6 +16,7 @@ export interface AgentSocketState {
   connected: boolean;
   isLoading: boolean;
   isSpeaking: boolean;
+  ttsEnabled: boolean;
   messages: ChatMessage[];
   agentState: string;
   plan: PlanStep[];
@@ -23,6 +24,7 @@ export interface AgentSocketState {
   currentStep: number;
   verifiedSteps: number[];
   sendMessage: (text: string) => void;
+  setTtsEnabled: (enabled: boolean) => void;
 }
 
 interface AgentSnapshot {
@@ -55,15 +57,37 @@ function cleanForSpeech(text: string): string {
 export function useAgentSocket(): AgentSocketState {
   const wsRef = useRef<WebSocket | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsEnabledRef = useRef(true);
   const [connected, setConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [ttsEnabledState, setTtsEnabledState] = useState(() => {
+    const stored = window.localStorage.getItem("circuit-sensei-tts-enabled");
+    return stored === null ? true : stored === "true";
+  });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agentState, setAgentState] = useState("IDLE");
   const [plan, setPlan] = useState<PlanStep[]>([]);
   const [components, setComponents] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [verifiedSteps, setVerifiedSteps] = useState<number[]>([]);
+
+  const stopCurrentAudio = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    setIsSpeaking(false);
+  };
+
+  const setTtsEnabled = (enabled: boolean) => {
+    ttsEnabledRef.current = enabled;
+    setTtsEnabledState(enabled);
+    window.localStorage.setItem("circuit-sensei-tts-enabled", String(enabled));
+    if (!enabled) {
+      stopCurrentAudio();
+    }
+  };
 
   const applySessionPayload = (msg: AgentSocketMessage) => {
     const snapshot = msg.snapshot;
@@ -98,14 +122,13 @@ export function useAgentSocket(): AgentSocketState {
   };
 
   const speakText = async (text: string) => {
+    if (!ttsEnabledRef.current) return;
+
     const clean = cleanForSpeech(text);
     if (!clean) return;
 
     // Stop any currently playing audio
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
+    stopCurrentAudio();
 
     try {
       setIsSpeaking(true);
@@ -119,6 +142,10 @@ export function useAgentSocket(): AgentSocketState {
         return;
       }
       const blob = await resp.blob();
+      if (!ttsEnabledRef.current) {
+        setIsSpeaking(false);
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       currentAudioRef.current = audio;
@@ -137,6 +164,10 @@ export function useAgentSocket(): AgentSocketState {
       setIsSpeaking(false);
     }
   };
+
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabledState;
+  }, [ttsEnabledState]);
 
   useEffect(() => {
     const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -173,7 +204,10 @@ export function useAgentSocket(): AgentSocketState {
       }
     };
 
-    return () => ws.close();
+    return () => {
+      ws.close();
+      stopCurrentAudio();
+    };
     // speakText only uses refs and stable setters — safe to omit from deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -189,5 +223,18 @@ export function useAgentSocket(): AgentSocketState {
     wsRef.current.send(JSON.stringify({ type: "message", text }));
   };
 
-  return { connected, isLoading, isSpeaking, messages, sendMessage, agentState, plan, components, currentStep, verifiedSteps };
+  return {
+    connected,
+    isLoading,
+    isSpeaking,
+    ttsEnabled: ttsEnabledState,
+    messages,
+    sendMessage,
+    setTtsEnabled,
+    agentState,
+    plan,
+    components,
+    currentStep,
+    verifiedSteps,
+  };
 }

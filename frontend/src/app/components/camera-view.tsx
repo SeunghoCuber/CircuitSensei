@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, Send } from "lucide-react";
+import { MessageCircle, Send, Volume2, VolumeX } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { ChatMessage } from "../hooks/use-agent-socket";
 
 interface DisplayMessage {
@@ -13,6 +14,8 @@ interface DisplayMessage {
 interface CameraViewProps {
   messages: ChatMessage[];
   isLoading: boolean;
+  ttsEnabled: boolean;
+  onTtsEnabledChange: (enabled: boolean) => void;
   onSend: (text: string) => void;
 }
 
@@ -23,7 +26,13 @@ function renderBold(text: string) {
   );
 }
 
-export function CameraView({ messages, isLoading, onSend }: CameraViewProps) {
+export function CameraView({
+  messages,
+  isLoading,
+  ttsEnabled,
+  onTtsEnabledChange,
+  onSend,
+}: CameraViewProps) {
   const [inputText, setInputText] = useState("");
   const [displayed, setDisplayed] = useState<DisplayMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -81,9 +90,31 @@ export function CameraView({ messages, isLoading, onSend }: CameraViewProps) {
 
   return (
     <Card className="w-80 bg-zinc-900 border-zinc-800 p-4 flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <MessageCircle className="size-4 text-emerald-400" />
-        <span className="text-sm text-zinc-100">Agent Chat</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <MessageCircle className="size-4 text-emerald-400" />
+          <span className="text-sm text-zinc-100">Agent Chat</span>
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={ttsEnabled ? "Turn off text to speech" : "Turn on text to speech"}
+              aria-pressed={ttsEnabled}
+              onClick={() => onTtsEnabledChange(!ttsEnabled)}
+              className={`size-8 shrink-0 hover:bg-zinc-800 ${
+                ttsEnabled ? "text-emerald-400" : "text-zinc-500"
+              }`}
+            >
+              {ttsEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {ttsEnabled ? "Turn off TTS" : "Turn on TTS"}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex-1 flex flex-col min-h-0 gap-3">

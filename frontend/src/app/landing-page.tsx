@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 import { Cpu, Zap, Eye, ArrowRight, Code, CircuitBoard } from "lucide-react";
-import { Button } from "./src/app/components/ui/button";
+import { Button } from "./components/ui/button";
 
 export function LandingPage() {
   const navigate = useNavigate();

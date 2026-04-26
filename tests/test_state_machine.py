@@ -344,6 +344,14 @@ def _config(tmp_path):
             "rows": list("ABCDEFGHIJ"),
             "columns": 63,
         },
+        "arduino": {
+            "pins": {
+                "5V": [20, 80],
+                "GND": [20, 100],
+                "D9": [20, 120],
+                "A0": [20, 140],
+            }
+        },
     }
 
 
