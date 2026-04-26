@@ -115,6 +115,28 @@ class ModelClient(Protocol):
 STATE_BLOCK_RE = re.compile(r"%%STATE%%\s*(\{.*?\})\s*%%END%%", re.DOTALL)
 PLAN_BLOCK_RE = re.compile(r"%%PLAN_JSON%%\s*(\[.*?\])\s*%%ENDPLAN_JSON%%", re.DOTALL)
 COMPONENTS_BLOCK_RE = re.compile(r"%%COMPONENTS_JSON%%\s*(\[.*?\])\s*%%ENDCOMPONENTS_JSON%%", re.DOTALL)
+INTERNAL_NOTE_PREFIXES = (
+    "user goal",
+    "current state",
+    "inventory",
+    "goal",
+    "idle ->",
+    "intake ->",
+    "plan ->",
+    "instruct ->",
+    "verify ->",
+    "verify_complete ->",
+    "test ->",
+    "the user",
+    "i need to",
+    "acknowledge",
+    "ask for",
+    "transition to",
+)
+USER_FACING_START_RE = re.compile(
+    r"\b(?:Hello|Hi|Great|Sure|Yes|Before|Let's|I can|We can|To build|For this)\b[^\n]*",
+    re.IGNORECASE | re.DOTALL,
+)
 HOLE_REF_RE = re.compile(r"\b([A-Ja-j])\s*([1-9][0-9]?)\b")
 COLUMN_REF_RE = re.compile(r"\bcol(?:umn)?s?\.?\s*([1-9][0-9]?)\b", re.IGNORECASE)
 ARDUINO_PIN_RE = re.compile(r"\b(?:a|d)(?:0|[1-9][0-3]?)\b", re.IGNORECASE)
@@ -1569,6 +1591,7 @@ class CircuitSenseiAgent:
         self._advance_step_if_verified(previous_state, transition.next_state)
         clean_text = PLAN_BLOCK_RE.sub("", clean_text).strip()
         clean_text = COMPONENTS_BLOCK_RE.sub("", clean_text).strip()
+        clean_text = sanitize_user_facing_text(clean_text)
         return clean_text
 
     def _set_plan(self, plan: list[dict[str, Any]]) -> None:
@@ -1779,6 +1802,30 @@ def parse_state_transition(text: str) -> tuple[str, StateTransition]:
     reason = str(payload.get("reason", ""))
     clean = STATE_BLOCK_RE.sub("", text).strip()
     return clean, StateTransition(next_state=next_state, reason=reason)
+
+
+def sanitize_user_facing_text(text: str) -> str:
+    """Remove controller notes that smaller/open models may leak into chat."""
+
+    clean = PLAN_BLOCK_RE.sub("", text)
+    clean = COMPONENTS_BLOCK_RE.sub("", clean)
+    if clean.lstrip().startswith("*"):
+        kept_parts = []
+        for part in re.split(r"\s*\*\s*", clean):
+            part = part.strip()
+            if not part:
+                continue
+            lowered = part.lower()
+            if lowered.startswith(INTERNAL_NOTE_PREFIXES):
+                user_facing_start = USER_FACING_START_RE.search(part)
+                if user_facing_start:
+                    kept_parts.append(part[user_facing_start.start() :])
+                continue
+            kept_parts.append(part)
+        clean = " ".join(kept_parts)
+    clean = re.sub(r"[ \t]+", " ", clean)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean.strip(" \n*")
 
 
 def parse_plan_block(text: str) -> list[dict[str, Any]] | None:

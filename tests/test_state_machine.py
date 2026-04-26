@@ -12,6 +12,7 @@ from circuit_sensei.agent import (
     build_builtin_plan,
     breadboard_node,
     parse_state_transition,
+    sanitize_user_facing_text,
     validate_and_repair_plan,
 )
 from circuit_sensei.tools import CircuitSenseiTools
@@ -25,6 +26,28 @@ def test_parse_state_transition_removes_block() -> None:
     assert clean == "Inventory confirmed."
     assert transition.next_state == SessionState.PLAN
     assert transition.reason == "ready"
+
+
+def test_sanitize_user_facing_text_removes_leaked_controller_notes() -> None:
+    leaked = (
+        "* User Goal: Build a voltage divider with two 30 ohm resistors. "
+        "* Current State: IDLE. "
+        "* Inventory: Empty. "
+        "* Goal: Move to INTAKE to gather the inventory of components available to the user. "
+        "* IDLE -> INTAKE (if inventory is missing). "
+        "* The user provided the goal but not the inventory. "
+        "* I need to ask the user what components they have. "
+        "* Acknowledge the goal. "
+        "* Ask for the available inventory. "
+        "* Transition to INTAKE state. "
+        "Hello! I can help you build a voltage divider. What components do you have available?"
+    )
+
+    clean = sanitize_user_facing_text(leaked)
+
+    assert clean == "Hello! I can help you build a voltage divider. What components do you have available?"
+    assert "Current State" not in clean
+    assert "Transition to" not in clean
 
 
 def test_invalid_transition_is_rejected() -> None:
