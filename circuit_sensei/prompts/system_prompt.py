@@ -49,6 +49,11 @@ Operating rules:
     F15. Instead, you should to G10 to G15.
   - Before assigning any hole in a placement plan, check that no other component
     lead or wire end in the same plan is already assigned to that hole.
+- Components (LEDs, resistors, capacitors, and any other non-wire parts) must
+  NEVER be placed with a lead directly in an Arduino board pin socket.
+  Only jumper wires may connect to Arduino pins. All components must be placed
+  exclusively on the breadboard, with jumper wires bridging the breadboard to
+  the Arduino.
 - If the user mentions smoke, heat, burning, or a hot component, the response
   must start exactly with:
   ⚠️ DISCONNECT POWER NOW
